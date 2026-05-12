@@ -54,23 +54,26 @@ Behavior:
 
 ### Docker（Proxmox 上の VM / LXC など）
 
-返信ボットだけをコンテナで常駐させる。MCP（Cursor）は別マシンでも同じトークンで動かせる。**Docker デーモンは homelab 上のその Linux だけで動き**、外向きに Discord Gateway へ接続します（こちらからあなたの Proxmox へリモートデプロイはできません。ゲストで次を実行してください）。
+`docker compose` は **`discord-reply-bot`** と **`agent-gateway`** の 2 サービスです（`agent_gateway/` は [cursor-cli-homelab のゲートウェイ](https://github.com/taka392/cursor-cli-homelab)と手動で同期）。
 
-1. Proxmox で Docker 入りの **VM または LXC**（公式推奨は VM）を用意する。
-2. ゲストでリポジトリを取得し、スクリプトで起動する。
+- **`CURSOR_AGENT_GATEWAY_URL` は既定サンプルのとおり `http://agent-gateway:9888`**。同一 Compose のブリッジ内で名前解決するため、`192.168.11.xx` の **別ホストに向ける必要はありません**（向けていてそこでゲートウェイが止まっていると「接続できません」になります）。
+- ホストに **`9888` を公開**するので、Mac の MCP で `CURSOR_HOMELAB_URL=http://<この VM の LAN IP>:9888` とすれば、`cursor-homelab-mcp` もこのゲートウェイを共有可能です。
+- `.env` は両コンテナに読み込まれるので、**`DISCORD_BOT_TOKEN`・`CURSOR_API_KEY`・`GATEWAY_TOKEN` は Git に載せない**こと。
+
+ゲスト側の手順例:
 
 ```bash
 git clone https://github.com/taka392/discord-mcp.git
 cd discord-mcp
 ./scripts/homelab_docker_up.sh
-# 初回は .env が無いので .env.example がコピーされる → DISCORD_BOT_TOKEN を編集して再度 ./scripts/homelab_docker_up.sh
+# 初回は .env が無いので .env.example がコピーされる → DISCORD_BOT_TOKEN / CURSOR_API_KEY / GATEWAY_TOKEN 等を編集して再度
 ```
 
-手動でも同じです。トークンは `.env` のみ（**コミットしない**）。
+手動でも同じです。
 
 ```bash
 cp .env.example .env
-# edit .env → DISCORD_BOT_TOKEN=...
+# edit .env （必須: DISCORD_BOT_TOKEN, CURSOR_API_KEY …）
 docker compose up -d --build
 docker compose logs -f
 ```

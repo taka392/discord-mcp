@@ -1,6 +1,5 @@
-# Run on Proxmox: install Docker in an LXC/VM, copy this directory, then:
-#   cp .env.example .env   # set DISCORD_BOT_TOKEN
-#   docker compose up -d --build
+# Proxmox 等で: cp .env.example .env を編集 → docker compose up -d --build
+# 「別マシンの :9888」ではなく、この compose に含まれる agent-gateway と Docker ネットワークで繋ぐ（推奨）。
 
 services:
   discord-reply-bot:
@@ -8,5 +7,29 @@ services:
     image: discord-reply-bot:latest
     container_name: discord-reply-bot
     restart: unless-stopped
+    depends_on:
+      - agent-gateway
     env_file:
       - .env
+    networks:
+      - discord_stack
+
+  agent-gateway:
+    build:
+      context: ./agent_gateway
+      dockerfile: Dockerfile
+    image: discord-stack-agent-gateway:latest
+    container_name: discord-stack-agent-gateway
+    restart: unless-stopped
+    ports:
+      - "9888:9888"
+    env_file:
+      - .env
+    volumes:
+      - ./workspace:/workspace
+    networks:
+      - discord_stack
+
+networks:
+  discord_stack:
+    driver: bridge
