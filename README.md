@@ -83,17 +83,22 @@ docker compose up -d --build
 
 ### Mac などから homelab へ SSH でデプロイ
 
-リポジトリの `scripts/deploy_remote.sh` が、**リモートで `git pull` → `homelab_docker_up.sh`** まで実行します。トークンはリモートの `.env` にだけ置く（初回は SSH で編集するか `scp`）。
+`scripts/deploy_remote.sh` は次まで一気に実行します: **リモートで `git pull` → ローカルの Cursor `mcp.json` からトークンを読む → `scp` でリモートの `.env` を上書き → `homelab_docker_up.sh`（Docker）**。
+
+- デフォルトで **`~/.cursor/mcp.json`** の `mcpServers.discord.env.DISCORD_BOT_TOKEN` を使う。
+- 別ファイルなら `export MCP_JSON_PATH='/path/to/mcp.json'`。
+- `mcp.json` を使わず一時的に上書きしたいだけなら `export DISCORD_BOT_TOKEN='…'`（その場合は mcp.json は読まない）。
 
 ```bash
 cd /path/to/discord-mcp   # clone 済みのどこでも可
 export HOMELAB_SSH='you@192.168.x.x'          # 必須
 # optional: export HOMELAB_REPO_DIR='/srv/discord-mcp'
 # optional: export HOMELAB_SSH_OPTS='-i ~/.ssh/id_ed25519'
+# optional: export MCP_JSON_PATH="$HOME/.cursor/mcp.json"
 ./scripts/deploy_remote.sh
 ```
 
-初回だけリモートに `.env` が無いと `homelab_docker_up.sh` が `.env.example` をコピーして終了するので、そのあと **リモートで `DISCORD_BOT_TOKEN` を記入**してから、もう一度 `./scripts/deploy_remote.sh`。
+**注意:** デプロイのたびにリモートの `.env` はローカル設定と同期される（トークンを homelab だけで管理したい場合はサーバー上で `homelab_docker_up.sh` だけ使う）。
 
 ## Local check
 
