@@ -37,6 +37,13 @@ python -m discord_mcp.reply_bot
 # or: discord-reply-bot
 ```
 
+`uvx` のデフォルトでは `reply-bot` 用の `discord.py` は入りません。リポジトリを clone しない場合は例えば次でも可です。
+
+```bash
+pip install "discord-mcp[reply-bot] @ git+https://github.com/taka392/discord-mcp.git"
+DISCORD_BOT_TOKEN='…' discord-reply-bot
+```
+
 Behavior:
 
 - **DM** to the bot → bot echoes an acknowledgment.
