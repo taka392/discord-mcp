@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-reply-bot = ["discord.py>=2.4.0,<3"]
+reply-bot = ["discord.py>=2.4.0,<3", "aiohttp>=3.9.0,<4"]
 
 [project.scripts]
 discord-mcp = "discord_mcp.server:main"

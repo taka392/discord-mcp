@@ -46,8 +46,11 @@ DISCORD_BOT_TOKEN='…' discord-reply-bot
 
 Behavior:
 
-- **DM** to the bot → bot echoes an acknowledgment.
-- **Server channel** → bot responds only if **@メンション** or **返信がボットのメッセージ宛**（取得できる場合のみ）。
+- **`CURSOR_AGENT_GATEWAY_URL` が未設定**: **DM** → 短文の確認エコー。**サーバー** → @メンション／ボットへの返信で「返信テスト」エコーのみ。
+- **`CURSOR_AGENT_GATEWAY_URL` を設定**（[`cursor-cli-homelab`](../cursor-cli-homelab) の `agent-gateway`、`POST /v1/prompt` と同じ）: 上記と同じトリガで、プロンプトをゲートウェイ経由で **`agent -p`** に渡し、**標準出力を Discord に返信**します（長文は自動で分割）。
+  - `.env`: `CURSOR_AGENT_GATEWAY_URL`, `GATEWAY_TOKEN`（ゲートウェイでトークン必須のとき）、`CURSOR_GATEWAY_TRUST_WORKSPACE`, `CURSOR_GATEWAY_TIMEOUT_SEC`, 任意で `CURSOR_GATEWAY_PROMPT_PREFIX`。
+  - ゲートウェイ側に **`CURSOR_API_KEY`** が必要です。CLI の MCP を確認なしで通したいときはゲートウェイの環境に **`AGENT_APPROVE_MCPS=true`**（[`--approve-mcps`](https://cursor.com/docs/cli/reference/parameters)）を設定。**Agent 既定**（`-p`、IDE の Ask モードではない）で動きますが、「Auto」と完全同一ではなくツール許可／サンドボックス次第です。
+- **DM** と **サーバー（@またはボットへの返信）** の両方でゲートウェイ連携あり。
 
 ### Docker（Proxmox 上の VM / LXC など）
 
@@ -80,6 +83,22 @@ docker compose up -d --build
 ```
 
 `restart: unless-stopped` なのでゲスト再起動後もコンテナが戻る（Docker が起動時に有効な前提）。
+
+### Proxmox QEMU VM（ゲストエージェント経由）
+
+Mac などから **Proxmox API + QEMU Guest Agent** で VM 内に clone・`.env` 同期・`docker compose up -d --build` まで一括できます（VM に Docker / git / agent が入っていること）。
+
+1. Cursor の `~/.cursor/mcp.json` に `mcpServers.discord.env.DISCORD_BOT_TOKEN` を用意する（または環境変数 `DISCORD_BOT_TOKEN`）。
+2. `proxmox-mcp` と同じ **`PROXMOX_*`** をシェルにエクスポートする。
+3. リポジトリで実行:
+
+```bash
+cd projects/discord-mcp
+python3 scripts/deploy_guest_exec.py --vmid 100
+```
+
+ゲストが **root のみ**（ubuntu ユーザーなし）の場合は既定で `/root/discord-mcp` に置きます。cloud-init で `ubuntu` がある場合は  
+`--unix-user ubuntu --repo-dir /home/ubuntu/discord-mcp` を付けてください。初回 Docker ビルドが長いときは `--timeout 900` など。
 
 ### Mac などから homelab へ SSH でデプロイ
 
