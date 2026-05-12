@@ -14,8 +14,23 @@ set -euo pipefail
 REPO_ARG="${HOMELAB_REPO_DIR:-}"
 GIT_URL="${HOMELAB_GIT_URL:-https://github.com/taka392/discord-mcp.git}"
 
-# shellcheck disable=SC2206
-SSH_EXTRA=(${HOMELAB_SSH_OPTS:-})
+# Avoid empty-array + set -u issues across bash versions; optional extra ssh args.
+_ssh() {
+  if [[ -n "${HOMELAB_SSH_OPTS:-}" ]]; then
+    # shellcheck disable=SC2086
+    ssh $HOMELAB_SSH_OPTS "$@"
+  else
+    ssh "$@"
+  fi
+}
+_scp() {
+  if [[ -n "${HOMELAB_SSH_OPTS:-}" ]]; then
+    # shellcheck disable=SC2086
+    scp $HOMELAB_SSH_OPTS "$@"
+  else
+    scp "$@"
+  fi
+}
 
 TMP="$(mktemp)"
 chmod 600 "$TMP"
@@ -51,12 +66,20 @@ else
 fi
 
 echo "==> ${HOMELAB_SSH}: git clone/pull (repo: ${HOMELAB_REPO_DIR:-\$HOME/discord-mcp})"
-ssh "${SSH_EXTRA[@]}" "$HOMELAB_SSH" bash -s -- "$REPO_ARG" "$GIT_URL" <<'REMOTE'
+# Pass repo/URL via env — some ssh versions mishandle bash -s positional args after --.
+_ssh "$HOMELAB_SSH" env \
+  "REMOTE_REPO_ARG=${REPO_ARG}" \
+  "REMOTE_GIT_URL=${GIT_URL}" \
+  bash -s <<'REMOTE'
 set -euo pipefail
-REPO="${1:-}"
-GIT_URL="${2:-}"
+REPO="${REMOTE_REPO_ARG:-}"
+GIT_URL="${REMOTE_GIT_URL:-}"
 if [[ -z "$REPO" ]]; then
   REPO="$HOME/discord-mcp"
+fi
+if [[ -z "$GIT_URL" ]]; then
+  echo "error: REMOTE_GIT_URL empty" >&2
+  exit 1
 fi
 
 if [[ ! -d "$REPO/.git" ]]; then
@@ -70,12 +93,12 @@ git pull --ff-only
 REMOTE
 
 echo "==> scp .env (from mcp.json or DISCORD_BOT_TOKEN env) -> ${SCP_TARGET}"
-scp "${SSH_EXTRA[@]}" "$TMP" "$SCP_TARGET"
+_scp "$TMP" "$SCP_TARGET"
 
 echo "==> docker compose up"
-ssh "${SSH_EXTRA[@]}" "$HOMELAB_SSH" bash -s -- "$REPO_ARG" <<'REMOTE'
+_ssh "$HOMELAB_SSH" env "REMOTE_REPO_ARG=${REPO_ARG}" bash -s <<'REMOTE'
 set -euo pipefail
-REPO="${1:-}"
+REPO="${REMOTE_REPO_ARG:-}"
 if [[ -z "$REPO" ]]; then
   REPO="$HOME/discord-mcp"
 fi
