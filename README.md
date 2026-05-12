@@ -122,6 +122,16 @@ export HOMELAB_SSH='you@192.168.x.x'          # 必須
 
 **注意:** デプロイのたびにリモートの `.env` はローカル設定と同期される（トークンを homelab だけで管理したい場合はサーバー上で `homelab_docker_up.sh` だけ使う）。
 
+Discord から **「ゲートウェイが利用できません (503)」** と出るときは、コンテナ内で **`CURSOR_API_KEY` が空**なことが多いです（[Headless CLI](https://cursor.com/docs/cli/headless) の API キーを homelab の `.env` に入れる）。
+
+Mac から Proxmox で VM100 に流し込む例::
+
+```bash
+export CURSOR_API_KEY='crsr_...'   # Cursor ダッシュボードで発行
+export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
+python3 scripts/push_gateway_env_guest_exec.py --vmid 100
+```
+
 ## Local check
 
 ```bash
