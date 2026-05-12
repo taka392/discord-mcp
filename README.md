@@ -81,6 +81,20 @@ docker compose up -d --build
 
 `restart: unless-stopped` なのでゲスト再起動後もコンテナが戻る（Docker が起動時に有効な前提）。
 
+### Mac などから homelab へ SSH でデプロイ
+
+リポジトリの `scripts/deploy_remote.sh` が、**リモートで `git pull` → `homelab_docker_up.sh`** まで実行します。トークンはリモートの `.env` にだけ置く（初回は SSH で編集するか `scp`）。
+
+```bash
+cd /path/to/discord-mcp   # clone 済みのどこでも可
+export HOMELAB_SSH='you@192.168.x.x'          # 必須
+# optional: export HOMELAB_REPO_DIR='/srv/discord-mcp'
+# optional: export HOMELAB_SSH_OPTS='-i ~/.ssh/id_ed25519'
+./scripts/deploy_remote.sh
+```
+
+初回だけリモートに `.env` が無いと `homelab_docker_up.sh` が `.env.example` をコピーして終了するので、そのあと **リモートで `DISCORD_BOT_TOKEN` を記入**してから、もう一度 `./scripts/deploy_remote.sh`。
+
 ## Local check
 
 ```bash
