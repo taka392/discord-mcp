@@ -51,11 +51,19 @@ Behavior:
 
 ### Docker（Proxmox 上の VM / LXC など）
 
-返信ボットだけをコンテナで常駐させる。MCP（Cursor）は別マシンでも同じトークンで動かせる。
+返信ボットだけをコンテナで常駐させる。MCP（Cursor）は別マシンでも同じトークンで動かせる。**Docker デーモンは homelab 上のその Linux だけで動き**、外向きに Discord Gateway へ接続します（こちらからあなたの Proxmox へリモートデプロイはできません。ゲストで次を実行してください）。
 
 1. Proxmox で Docker 入りの **VM または LXC**（公式推奨は VM）を用意する。
-2. このリポジトリをゲストに `git clone` するか、`Dockerfile` / `docker-compose.yml` / `discord_mcp/` だけコピーする。
-3. トークンを `.env` に書く（**コミットしない**）。
+2. ゲストでリポジトリを取得し、スクリプトで起動する。
+
+```bash
+git clone https://github.com/taka392/discord-mcp.git
+cd discord-mcp
+./scripts/homelab_docker_up.sh
+# 初回は .env が無いので .env.example がコピーされる → DISCORD_BOT_TOKEN を編集して再度 ./scripts/homelab_docker_up.sh
+```
+
+手動でも同じです。トークンは `.env` のみ（**コミットしない**）。
 
 ```bash
 cp .env.example .env
