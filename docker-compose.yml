@@ -1,0 +1,12 @@
+# Run on Proxmox: install Docker in an LXC/VM, copy this directory, then:
+#   cp .env.example .env   # set DISCORD_BOT_TOKEN
+#   docker compose up -d --build
+
+services:
+  discord-reply-bot:
+    build: .
+    image: discord-reply-bot:latest
+    container_name: discord-reply-bot
+    restart: unless-stopped
+    env_file:
+      - .env

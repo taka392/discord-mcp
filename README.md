@@ -49,6 +49,30 @@ Behavior:
 - **DM** to the bot → bot echoes an acknowledgment.
 - **Server channel** → bot responds only if **@メンション** or **返信がボットのメッセージ宛**（取得できる場合のみ）。
 
+### Docker（Proxmox 上の VM / LXC など）
+
+返信ボットだけをコンテナで常駐させる。MCP（Cursor）は別マシンでも同じトークンで動かせる。
+
+1. Proxmox で Docker 入りの **VM または LXC**（公式推奨は VM）を用意する。
+2. このリポジトリをゲストに `git clone` するか、`Dockerfile` / `docker-compose.yml` / `discord_mcp/` だけコピーする。
+3. トークンを `.env` に書く（**コミットしない**）。
+
+```bash
+cp .env.example .env
+# edit .env → DISCORD_BOT_TOKEN=...
+docker compose up -d --build
+docker compose logs -f
+```
+
+停止・更新:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+`restart: unless-stopped` なのでゲスト再起動後もコンテナが戻る（Docker が起動時に有効な前提）。
+
 ## Local check
 
 ```bash
