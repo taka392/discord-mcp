@@ -31,7 +31,7 @@ class DiscordClient:
         self._session.headers.update(
             {
                 "Authorization": f"Bot {raw}",
-                "User-Agent": "discord-mcp/0.1.0 (https://github.com/taka392/discord-mcp)",
+                "User-Agent": "discord-mcp/0.1.1 (https://github.com/taka392/discord-mcp)",
             }
         )
 

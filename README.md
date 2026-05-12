@@ -21,6 +21,27 @@
 
 Gateway intents (Presence, Server Members, Message Content) apply to the **Gateway** websocket. This MCP uses **HTTP** only; channel permissions still apply (e.g. Read Message History, Send Messages).
 
+## Reply bot (auto-replies on Discord)
+
+The MCP alone cannot listen for messages. For **DMs and @mentions** (and replies to the bot when Discord fills the reference), run the optional Gateway bot:
+
+1. In the [Developer Portal](https://discord.com/developers/applications) → your app → **Bot**, enable **Message Content Intent** (Privileged Gateway Intents).
+2. Install extras and start the process (keep this terminal open, or run under `tmux` / a process manager):
+
+```bash
+cd projects/discord-mcp
+source .venv/bin/activate
+pip install -e ".[reply-bot]"
+export DISCORD_BOT_TOKEN='…'   # same token as MCP
+python -m discord_mcp.reply_bot
+# or: discord-reply-bot
+```
+
+Behavior:
+
+- **DM** to the bot → bot echoes an acknowledgment.
+- **Server channel** → bot responds only if **@メンション** or **返信がボットのメッセージ宛**（取得できる場合のみ）。
+
 ## Local check
 
 ```bash

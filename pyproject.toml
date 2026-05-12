@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discord-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for Discord REST API (bot token)."
 readme = "README.md"
 license = { text = "MIT" }
@@ -22,9 +22,13 @@ dependencies = [
     "requests>=2.31.0",
 ]
 
+[project.optional-dependencies]
+reply-bot = ["discord.py>=2.4.0,<3"]
+
 [project.scripts]
 discord-mcp = "discord_mcp.server:main"
 discord-mcp-check = "discord_mcp.check:main"
+discord-reply-bot = "discord_mcp.reply_bot:main"
 
 [project.urls]
 Repository = "https://github.com/taka392/discord-mcp"
