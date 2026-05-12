@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "discord": {
+      "command": "/opt/homebrew/bin/uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/taka392/discord-mcp.git",
+        "discord-mcp"
+      ],
+      "env": {
+        "DISCORD_BOT_TOKEN": "<bot token from Developer Portal — never commit>"
+      }
+    }
+  }
+}
