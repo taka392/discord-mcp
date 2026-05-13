@@ -28,6 +28,21 @@ Gateway intents (Presence, Server Members, Message Content) apply to the **Gatew
 - **同じ `DISCORD_BOT_TOKEN` で、下記の `reply-bot`（別プロセス）と同時に動かさない**でください。WebSocket が二重になり競合します。
 - HTTP の `/v1/chat/completions` 経由で返したい場合だけ、従来どおり **reply-bot** を使います（別経路）。
 
+### 公式 Discord のみ使う: VM から `discord-mcp`（reply-bot）を削除する
+
+**OpenClaw の `channels.discord` だけ**運用するなら、ゲスト上の **clone + Docker / reply-bot は不要**です。次で止めて消して構いません（パスは環境に合わせて読み替え）。
+
+```bash
+# ゲスト SSH 内
+cd /root/discord-mcp   # または clone したディレクトリ（例: ~/discord-mcp）
+COMPOSE_PROFILES=prod docker compose down
+docker rm -f discord-reply-bot 2>/dev/null || true
+docker rmi discord-reply-bot:latest 2>/dev/null || true
+cd .. && rm -rf discord-mcp
+```
+
+**OpenClaw Gateway**（`openclaw gateway` / systemd）はそのまま。`DISCORD_BOT_TOKEN` は Gateway の環境（例: `~/.openclaw/.env`）に残し、**公式手順の `config patch`** だけで Discord に接続します。
+
 ## Reply bot（補助: HTTP で OpenClaw に転送）
 
 The MCP alone cannot listen for messages. For **DMs and @mentions** (and replies to the bot when Discord fills the reference), run the optional Gateway bot:
@@ -66,9 +81,9 @@ Behavior:
 
 Discord の本文に含まれる **`<@…>` 形式のメンション**は、LLM に渡す前にプレースホルダへ置き換えます（モデルが「ユーザーIDは解決できない」と返すのを防ぐため）。
 
-### Docker（推奨: **OpenClaw Gateway と同一 VM**）
+### Docker（**reply-bot** を OpenClaw と同一 VM で動かす場合のみ・任意）
 
-`docker compose` は **`discord-reply-bot` の 1 サービスのみ**です。OpenClaw Gateway 本体は **含みません**（ホスト上の `openclaw gateway` / systemd と同居させます）。
+**`channels.discord` だけで足りるなら VM に置く必要はありません**（上の「VM から削除する」を参照）。`docker compose` は **`discord-reply-bot` の 1 サービスのみ**です。OpenClaw Gateway 本体は **含みません**（ホスト上の `openclaw gateway` / systemd と同居させます）。
 
 - **`network_mode: host`** のため、`.env` の **`OPENCLAW_GATEWAY_URL` は `http://127.0.0.1:<port>`**（例: `http://127.0.0.1:18789`）。ポートはその VM で Gateway が待ち受けているものに合わせる。
 - **Mac で `docker compose up` だけ**だとコンテナは立ちません（**profile `prod`**）。誤実行でリソースを食わないため。

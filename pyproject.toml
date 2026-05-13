@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discord-mcp"
-version = "0.3.7"
+version = "0.3.8"
 description = "MCP server for Discord REST API (bot token)."
 readme = "README.md"
 license = { text = "MIT" }
