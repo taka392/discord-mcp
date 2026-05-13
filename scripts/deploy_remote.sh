@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# From your Mac: read DISCORD_BOT_TOKEN from Cursor MCP config, push .env to homelab, pull + docker compose.
+# From your Mac: read secrets from Cursor mcp.json, push .env to the **OpenClaw と同居**したホスト, git pull + compose.
+# リモートの OPENCLAW_GATEWAY_URL は **ループバック**（デフォルト http://127.0.0.1:18789）。MCP の Tailscale URL は使わない。
 #
-#   export HOMELAB_SSH='user@192.168.x.x'    # required
-#   optional: HOMELAB_REPO_DIR=/opt/discord-mcp   (default on remote: ~/discord-mcp)
+#   export HOMELAB_SSH='user@192.168.x.x'    # required（OpenClaw Gateway が動いている VM）
+#   optional: OPENCLAW_GATEWAY_LOCAL_URL=http://127.0.0.1:18789
+#   optional: HOMELAB_REPO_DIR=/root/discord-mcp
 #   optional: HOMELAB_GIT_URL=... HOMELAB_SSH_OPTS='-i ~/.ssh/id_ed25519'
 #   optional: MCP_JSON_PATH=~/.cursor/mcp.json    (default)
-#   optional: DISCORD_BOT_TOKEN=...               (if set, skips mcp.json)
+#   optional: DISCORD_BOT_TOKEN=...               (if set, skips mcp.json; OpenClaw 用キーは .env を手編集)
 #
 set -euo pipefail
 
@@ -37,10 +39,16 @@ chmod 600 "$TMP"
 trap 'rm -f "$TMP"' EXIT
 
 export TMP_ENV_PATH="$TMP"
+export OPENCLAW_GATEWAY_LOCAL_URL="${OPENCLAW_GATEWAY_LOCAL_URL:-http://127.0.0.1:18789}"
 
 if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then
-  printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN" > "$TMP"
-  echo "warning: only DISCORD_BOT_TOKEN set — add OPENCLAW_* to remote .env manually for OpenClaw." >&2
+  {
+    printf 'COMPOSE_PROFILES=prod\n'
+    printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
+    printf 'OPENCLAW_GATEWAY_URL=%s\n' "${OPENCLAW_GATEWAY_LOCAL_URL}"
+    printf 'OPENCLAW_CHAT_MODEL=%s\n' "${OPENCLAW_CHAT_MODEL:-google/gemini-3.1-pro-preview}"
+  } > "$TMP"
+  echo "warning: only DISCORD_BOT_TOKEN set — add OPENCLAW_GATEWAY_TOKEN to remote .env manually." >&2
 else
   MCP_JSON_PATH="${MCP_JSON_PATH:-$HOME/.cursor/mcp.json}"
   export MCP_JSON_PATH
@@ -53,20 +61,25 @@ d = json.loads(p.read_text(encoding='utf-8'))
 srv = d.get('mcpServers') or {}
 dt = (srv.get('discord', {}).get('env', {}).get('DISCORD_BOT_TOKEN') or '').strip()
 oc = srv.get('openclaw', {}).get('env', {}) or {}
-ou = str(oc.get('OPENCLAW_GATEWAY_URL') or '').strip()
 ot = str(oc.get('OPENCLAW_GATEWAY_TOKEN') or '').strip()
 op = str(oc.get('OPENCLAW_GATEWAY_PASSWORD') or '').strip()
+ocm = str(oc.get('OPENCLAW_CHAT_MODEL') or '').strip() or 'google/gemini-3.1-pro-preview'
+local_u = (os.environ.get('OPENCLAW_GATEWAY_LOCAL_URL') or 'http://127.0.0.1:18789').strip()
 if not dt:
     raise SystemExit(
         'DISCORD_BOT_TOKEN empty in mcp.json (mcpServers.discord.env). '
         'Set it in Cursor MCP or export DISCORD_BOT_TOKEN for this script.'
     )
-if not ou or not (ot or op):
+if not (ot or op):
     raise SystemExit(
-        'mcpServers.openclaw.env needs OPENCLAW_GATEWAY_URL and '
-        'OPENCLAW_GATEWAY_TOKEN (or PASSWORD) for OpenClaw-only deploy.'
+        'mcpServers.openclaw.env needs OPENCLAW_GATEWAY_TOKEN (or PASSWORD).'
     )
-lines = [f'DISCORD_BOT_TOKEN={dt}', f'OPENCLAW_GATEWAY_URL={ou}']
+lines = [
+    'COMPOSE_PROFILES=prod',
+    f'DISCORD_BOT_TOKEN={dt}',
+    f'OPENCLAW_GATEWAY_URL={local_u}',
+    f'OPENCLAW_CHAT_MODEL={ocm}',
+]
 lines.append(f'OPENCLAW_GATEWAY_TOKEN={ot}' if ot else f'OPENCLAW_GATEWAY_PASSWORD={op}')
 pathlib.Path(os.environ['TMP_ENV_PATH']).write_text('\\n'.join(lines) + '\\n', encoding='utf-8')
 " || exit 1

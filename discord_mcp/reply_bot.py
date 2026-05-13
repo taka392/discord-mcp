@@ -2,6 +2,10 @@
 
 Uses ``DISCORD_BOT_TOKEN``. Requires **Message Content Intent** for guild text.
 
+Guild triggers: real @mention, ``<@id>`` / ``<@!id>`` in text, ``@…{snowflake}`` when
+the token ends with this bot's user id (plain ``@bot123…`` is **not** a Discord mention),
+or **reply** to the bot's message.
+
 **Default:** only **OpenClaw** ``POST {OPENCLAW_GATEWAY_URL}/v1/chat/completions``.
 There is **no fallback** to Cursor unless you explicitly set
 ``DISCORD_LLM_BACKEND=cursor`` (legacy / bundled compose).
@@ -37,6 +41,43 @@ import discord
 def _strip_mentions(content: str, user: discord.ClientUser) -> str:
     mention = user.mention
     return content.replace(mention, "").replace(f"<@!{user.id}>", "").strip()
+
+
+def _pseudo_at_snowflake_triggers(content: str, user_id: int) -> bool:
+    """True if any ``@...`` token ends with this bot's snowflake (Discord does not treat
+    ``@bot123...`` as a real mention, so ``message.mentions`` stays empty).
+    """
+    uid = str(user_id)
+    for m in re.finditer(r"@\S+", content or ""):
+        tok = m.group(0)
+        if not tok.endswith(uid):
+            continue
+        rest = tok[: -len(uid)]
+        if len(rest) >= 1 and rest[-1].isdigit():
+            continue
+        return True
+    return False
+
+
+def _strip_pseudo_at_snowflake(content: str, user_id: int) -> str:
+    uid = str(user_id)
+    return re.sub(rf"@\S*{re.escape(uid)}(?!\d)\s*", "", content or "", count=1).strip()
+
+
+def _strip_guild_user_text(content: str, user: discord.ClientUser) -> str:
+    s = _strip_mentions(content, user)
+    s = _strip_pseudo_at_snowflake(s, user.id)
+    return s.strip()
+
+
+def _guild_addresses_bot(client: discord.Client, message: discord.Message) -> bool:
+    assert client.user
+    raw = message.content or ""
+    if client.user in message.mentions:
+        return True
+    if re.search(rf"<@!?{client.user.id}>", raw):
+        return True
+    return _pseudo_at_snowflake_triggers(raw, client.user.id)
 
 
 def _mask_discord_markup_for_llm(text: str) -> str:
@@ -90,7 +131,8 @@ def _openclaw_configured() -> bool:
 
 
 def _openclaw_chat_model() -> str:
-    return (os.getenv("OPENCLAW_CHAT_MODEL") or "openclaw/default").strip()
+    # Gateway allowlist に google/… が必要。上書きは OPENCLAW_CHAT_MODEL。
+    return (os.getenv("OPENCLAW_CHAT_MODEL") or "google/gemini-3.1-pro-preview").strip()
 
 
 def _openclaw_message_channel() -> str:
@@ -450,8 +492,7 @@ def main() -> None:
             await _reply_in_chunks(message.channel, answer, reference=message)
             return
 
-        # Guild: @bot mention or reply to bot's message
-        mentioned = client.user in message.mentions
+        # Guild: real @mention, <@id> in body, @…snowflake pseudo-mention, or reply to bot
         replying_to_bot = False
         if message.reference:
             ref_msg = message.reference.resolved or message.reference.cached_message
@@ -461,10 +502,19 @@ def main() -> None:
             ):
                 replying_to_bot = True
 
-        if not (mentioned or replying_to_bot):
+        addresses = _guild_addresses_bot(client, message)
+        if not (addresses or replying_to_bot):
             return
 
-        body = _strip_mentions(message.content or "", client.user) or "（メンションのみ）"
+        if addresses and client.user not in message.mentions:
+            print(
+                f"reply_bot guild: pseudo-mention / markup trigger ch={message.channel.id} "
+                f"from={message.author.id}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        body = _strip_guild_user_text(message.content or "", client.user) or "（メンションのみ）"
 
         reply_notice = await message.channel.send(
             busy,

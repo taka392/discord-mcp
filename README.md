@@ -48,8 +48,8 @@ Behavior:
 
 - **既定は OpenClaw のみ**です。`OPENCLAW_GATEWAY_URL` と `OPENCLAW_GATEWAY_TOKEN`（または `OPENCLAW_GATEWAY_PASSWORD`）を `discord-reply-bot` に渡すと、[OpenClaw Gateway](https://docs.openclaw.ai/gateway/openai-http-api) の **`POST /v1/chat/completions`** にユーザ文を送り、**アシスタント本文を Discord に返信**します。**Cursor ゲートウェイには送りません**（`.env` に `CURSOR_AGENT_GATEWAY_URL` が残っていても無視されます）。
   - Gateway で **`gateway.http.endpoints.chatCompletions.enabled`** を有効にしてください（無効だと HTTP 404 などになります）。
-  - 主な環境変数: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, 任意で `OPENCLAW_CHAT_MODEL`（既定 `openclaw/default`）、`OPENCLAW_SESSION_USER`（未設定時は `discord:<Discord ユーザー ID>`）、`OPENCLAW_MESSAGE_CHANNEL`（既定 `discord`）、`OPENCLAW_SESSION_KEY`, `OPENCLAW_MODEL_HEADER`, `OPENCLAW_PROMPT_PREFIX`, `OPENCLAW_GATEWAY_TIMEOUT_SEC`。
-  - Cursor の `mcp.json` の `openclaw` と**同じ URL／トークン**を reply-bot の環境に渡せばよいです（別プロセスのため自動同期はしません）。
+  - 主な環境変数: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, 任意で `OPENCLAW_CHAT_MODEL`（未指定時は **`google/gemini-3.1-pro-preview`**）、`OPENCLAW_SESSION_USER`（未設定時は `discord:<Discord ユーザー ID>`）、`OPENCLAW_MESSAGE_CHANNEL`（既定 `discord`）、`OPENCLAW_SESSION_KEY`, `OPENCLAW_MODEL_HEADER`, `OPENCLAW_PROMPT_PREFIX`, `OPENCLAW_GATEWAY_TIMEOUT_SEC`。Gemini を使うには Gateway 側に [Google プロバイダの認証](https://docs.openclaw.ai/providers/google)（`GEMINI_API_KEY` 等）が必要です。
+  - Cursor の `mcp.json` の `openclaw` の **`OPENCLAW_GATEWAY_TOKEN`（または PASSWORD）**を reply-bot の `.env` に**同じ値で**渡してください。**URL は OpenClaw と同じホストなら `http://127.0.0.1:<gateway-port>`**（Mac の MCP が使う Tailscale URL と同じである必要はありません）。
   - OpenClaw が未設定のときは、DM／メンションでも **設定不足の説明**が返ります（旧来の短文エコーはしません）。
 
 - **Cursor の HTTP ゲートウェイだけ使う**場合（[`cursor-cli-homelab`](../cursor-cli-homelab) を**別ホスト／別 compose**で動かしているとき）: `.env` に **`DISCORD_LLM_BACKEND=cursor`** と、到達可能な **`CURSOR_AGENT_GATEWAY_URL`**（例: `http://192.168.x.x:9888`）を書いてください。**POST /v1/prompt`** で `agent -p` の標準出力を返します。
@@ -59,16 +59,22 @@ Behavior:
 
 Discord の本文に含まれる **`<@…>` 形式のメンション**は、LLM に渡す前にプレースホルダへ置き換えます（モデルが「ユーザーIDは解決できない」と返すのを防ぐため）。
 
-### Docker（Proxmox 上の VM / LXC など）
+### Docker（推奨: **OpenClaw Gateway と同一 VM**）
 
-`docker compose` は **`discord-reply-bot` の 1 サービスのみ**です（**bundled の `agent-gateway` は含みません**。OpenClaw は別 VM／Tailscale 等で動かしている前提です）。
+`docker compose` は **`discord-reply-bot` の 1 サービスのみ**です。OpenClaw Gateway 本体は **含みません**（ホスト上の `openclaw gateway` / systemd と同居させます）。
 
-- **必須**: `.env` に **`DISCORD_BOT_TOKEN`** と **`OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`**（または `PASSWORD`）。
-- **Cursor 経路**に切り替えるときだけ `.env` に **`DISCORD_LLM_BACKEND=cursor`** と、**別途動いている** `CURSOR_AGENT_GATEWAY_URL` を書いてください。
+- **`network_mode: host`** のため、`.env` の **`OPENCLAW_GATEWAY_URL` は `http://127.0.0.1:<port>`**（例: `http://127.0.0.1:18789`）。ポートはその VM で Gateway が待ち受けているものに合わせる。
+- **Mac で `docker compose up` だけ**だとコンテナは立ちません（**profile `prod`**）。誤実行でリソースを食わないため。
+- **本番 VM**では `.env` の **`COMPOSE_PROFILES=prod`**（`.env.example` に同梱）か、`./scripts/homelab_docker_up.sh`。
+- **ローカル試験のみ**: `COMPOSE_PROFILES=prod docker compose up -d --build`（Linux が前提。Docker Desktop の挙動は環境による）。
+
+- **必須**: `.env` に **`DISCORD_BOT_TOKEN`** と **`OPENCLAW_GATEWAY_URL`（ループバック）** / **`OPENCLAW_GATEWAY_TOKEN`**（または `PASSWORD`）。
+- **Cursor 経路**に切り替えるときだけ `.env` に **`DISCORD_LLM_BACKEND=cursor`** と、到達可能な `CURSOR_AGENT_GATEWAY_URL`。
 - **`DISCORD_BOT_TOKEN`・`OPENCLAW_GATEWAY_TOKEN` は Git に載せない**こと。
-- **Tailscale の `https://…ts.net` を使う場合**: compose に **`dns: 100.100.100.100`**（Quad100）を入れてあるので、コンテナから MagicDNS で `*.ts.net` が引ける。ホストだけ TS 参加でコンテナが別 DNSのままだと **「処理中」のまま**返ってこないことがある。
 
-ゲスト側の手順例:
+**旧構成（別 VM に Discord ボットだけ置く）をやめた場合:** もう使わない VM 上で `docker compose down` のうえ、コンテナ／compose を削除してください。Tailscale 越し URL は不要になるため、`.env` の `OPENCLAW_GATEWAY_URL` はループバックに統一します。
+
+ゲスト（OpenClaw VM）での手順例:
 
 ```bash
 git clone https://github.com/taka392/discord-mcp.git
@@ -81,67 +87,52 @@ cd discord-mcp
 
 ```bash
 cp .env.example .env
-# edit .env （必須: DISCORD_BOT_TOKEN, OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN）
-docker compose up -d --build
+# DISCORD_BOT_TOKEN, OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789, OPENCLAW_GATEWAY_TOKEN
+COMPOSE_PROFILES=prod docker compose up -d --build
 docker compose logs -f
 ```
 
 停止・更新:
 
 ```bash
-docker compose down
-docker compose up -d --build
+COMPOSE_PROFILES=prod docker compose down
+COMPOSE_PROFILES=prod docker compose up -d --build
 ```
 
 `restart: unless-stopped` なのでゲスト再起動後もコンテナが戻る（Docker が起動時に有効な前提）。
 
-### Proxmox QEMU VM（ゲストエージェント経由）
+### Proxmox QEMU VM（ゲストエージェント）
 
-Mac などから **Proxmox API + QEMU Guest Agent** で VM 内に clone・`.env` 同期・`docker compose up -d --build` まで一括できます（VM に Docker / git / agent が入っていること）。
+**OpenClaw と同じゲスト**に `discord-mcp` を clone し、Mac から `.env` を流し込んで `docker compose` まで実行します。
 
-1. Cursor の `~/.cursor/mcp.json` に `mcpServers.discord.env.DISCORD_BOT_TOKEN` を用意する（または環境変数 `DISCORD_BOT_TOKEN`）。
+1. `~/.cursor/mcp.json` に `mcpServers.discord.env.DISCORD_BOT_TOKEN` と `openclaw` のトークン（またはパスワード）を用意する。
 2. `proxmox-mcp` と同じ **`PROXMOX_*`** をシェルにエクスポートする。
-3. リポジトリで実行:
+3. **Gateway ポートが 18789 でない**ときは `OPENCLAW_GATEWAY_LOCAL_URL` または `--local-gateway-url` を指定。
 
 ```bash
 cd projects/discord-mcp
-python3 scripts/deploy_guest_exec.py --vmid 100
+export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
+python3 scripts/push_gateway_env_guest_exec.py --vmid 100
+# 例: python3 scripts/push_gateway_env_guest_exec.py --vmid 100 --repo-dir /root/discord-mcp --local-gateway-url http://127.0.0.1:18789
 ```
 
-ゲストが **root のみ**（ubuntu ユーザーなし）の場合は既定で `/root/discord-mcp` に置きます。cloud-init で `ubuntu` がある場合は  
-`--unix-user ubuntu --repo-dir /home/ubuntu/discord-mcp` を付けてください。初回 Docker ビルドが長いときは `--timeout 900` など。
+### Mac から OpenClaw VM へ SSH でデプロイ
 
-### Mac などから homelab へ SSH でデプロイ
-
-`scripts/deploy_remote.sh` は次まで一気に実行します: **リモートで `git pull` → ローカルの Cursor `mcp.json` からトークンを読む → `scp` でリモートの `.env` を上書き → `homelab_docker_up.sh`（Docker）**。
-
-- デフォルトで **`~/.cursor/mcp.json`** の `mcpServers.discord.env.DISCORD_BOT_TOKEN` を使う。
-- 別ファイルなら `export MCP_JSON_PATH='/path/to/mcp.json'`。
-- `mcp.json` を使わず一時的に上書きしたいだけなら `export DISCORD_BOT_TOKEN='…'`（その場合は mcp.json は読まない）。
+`scripts/deploy_remote.sh` は **リモートで `git pull` → `scp` で `.env` → `homelab_docker_up.sh`** まで行います。生成する **`OPENCLAW_GATEWAY_URL` はデフォルトで `http://127.0.0.1:18789`**（`OPENCLAW_GATEWAY_LOCAL_URL` で変更可）。mcp.json の Tailscale URL は **書き込みません**。
 
 ```bash
-cd /path/to/discord-mcp   # clone 済みのどこでも可
-export HOMELAB_SSH='you@192.168.x.x'          # 必須
-# optional: export HOMELAB_REPO_DIR='/srv/discord-mcp'
-# optional: export HOMELAB_SSH_OPTS='-i ~/.ssh/id_ed25519'
-# optional: export MCP_JSON_PATH="$HOME/.cursor/mcp.json"
+cd /path/to/discord-mcp
+export HOMELAB_SSH='root@<OpenClaw-VM の IP or tailscale>'
+# optional: export OPENCLAW_GATEWAY_LOCAL_URL='http://127.0.0.1:18789'
+# optional: export HOMELAB_REPO_DIR='/root/discord-mcp'
 ./scripts/deploy_remote.sh
 ```
 
-**注意:** デプロイのたびにリモートの `.env` はローカル設定と同期される（トークンを homelab だけで管理したい場合はサーバー上で `homelab_docker_up.sh` だけ使う）。
+**注意:** `DISCORD_BOT_TOKEN` だけ `export` したモードでは、リモート `.env` にトークンとループバック URLだけ入り **`OPENCLAW_GATEWAY_TOKEN` は手で追記**してください。
 
-Discord から **「ゲートウェイが利用できません (503)」** と出るのは、**`DISCORD_LLM_BACKEND=cursor`** で Cursor 経路を使っているときに、コンテナ内で **`CURSOR_API_KEY` が空**なことが多いです（[Headless CLI](https://cursor.com/docs/cli/headless)）。
+Discord から **「ゲートウェイが利用できません (503)」** は **`DISCORD_LLM_BACKEND=cursor`** かつ **`CURSOR_API_KEY` 未設定**なときに出やすいです（Cursor 経路）。
 
-**OpenClaw 既定**のときは、Gateway の **chat completions** や **認証トークン**を確認してください。
-
-Mac から Proxmox で VM100 に OpenClaw 用 `.env` を流し込む例::
-
-```bash
-export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
-python3 scripts/push_gateway_env_guest_exec.py --vmid 100
-```
-
-（`~/.cursor/mcp.json` の **discord** と **openclaw** を読みます。）
+**OpenClaw 既定**では、同一 VM 上で Gateway が待ち受けているか（`ss -tlnp` 等）、`OPENCLAW_GATEWAY_URL` / トークン、Gateway の **chat completions** 有効化を確認してください。
 
 ## Local check
 

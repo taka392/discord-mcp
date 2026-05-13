@@ -1,22 +1,18 @@
-# Proxmox 等: cp .env.example .env を編集（DISCORD_BOT_TOKEN + OPENCLAW_*）→ docker compose up -d --build
-# 既定スタックは discord-reply-bot のみ（OpenClaw）。Cursor agent-gateway は含みません。
+# discord-reply-bot のみ（OpenClaw Gateway 本体は **この compose には含めない**。
+# 同一 VM 上で systemd 等の Gateway を動かし、ボットは host ネットワークで 127.0.0.1 に向ける想定）
+#
+# profile ``prod``: Mac で誤って ``docker compose up`` してもコンテナが立たない。
+# 本番: .env に COMPOSE_PROFILES=prod、または ./scripts/homelab_docker_up.sh
+# ローカル試験: COMPOSE_PROFILES=prod docker compose up -d --build
 
 services:
   discord-reply-bot:
+    profiles: ["prod"]
     build: .
     image: discord-reply-bot:latest
     container_name: discord-reply-bot
     restart: unless-stopped
     env_file:
       - .env
-    # ホストで Tailscale + MagicDNS でも、bridge コンテナは Quad100 を明示しないと
-    # *.ts.net が引けず OpenClaw へ接続がハングすることがある。
-    dns:
-      - 100.100.100.100
-      - 8.8.8.8
-    networks:
-      - discord_stack
-
-networks:
-  discord_stack:
-    driver: bridge
+    # 同一ホストの Gateway へ http://127.0.0.1:<port>（既定 18789）。bridge のままだと 127.0.0.1 がコンテナ自身を指す。
+    network_mode: host

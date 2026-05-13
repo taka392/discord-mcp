@@ -42,7 +42,12 @@ oc_val="${oc_val%%#*}"
 oc_val="$(printf '%s' "$oc_val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^['\"]//" -e "s/['\"]$//")"
 if [[ -z "$oc_val" ]]; then
   echo "warning: OPENCLAW_GATEWAY_URL is empty — reply-bot will reply with a config error until set." >&2
+elif echo "$oc_val" | grep -qi 'ts\.net'; then
+  echo "warning: OPENCLAW_GATEWAY_URL looks like Tailscale MagicDNS — on the OpenClaw host use http://127.0.0.1:<port> instead." >&2
 fi
+
+# compose の discord-reply-bot は profile prod のみ。.env に COMPOSE_PROFILES が無くても本番スクリプトでは起動する。
+export COMPOSE_PROFILES="${COMPOSE_PROFILES:-prod}"
 
 docker compose up -d --build
 docker compose ps
