@@ -66,6 +66,7 @@ Discord の本文に含まれる **`<@…>` 形式のメンション**は、LLM 
 - **必須**: `.env` に **`DISCORD_BOT_TOKEN`** と **`OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`**（または `PASSWORD`）。
 - **Cursor 経路**に切り替えるときだけ `.env` に **`DISCORD_LLM_BACKEND=cursor`** と、**別途動いている** `CURSOR_AGENT_GATEWAY_URL` を書いてください。
 - **`DISCORD_BOT_TOKEN`・`OPENCLAW_GATEWAY_TOKEN` は Git に載せない**こと。
+- **Tailscale の `https://…ts.net` を使う場合**: compose に **`dns: 100.100.100.100`**（Quad100）を入れてあるので、コンテナから MagicDNS で `*.ts.net` が引ける。ホストだけ TS 参加でコンテナが別 DNSのままだと **「処理中」のまま**返ってこないことがある。
 
 ゲスト側の手順例:
 

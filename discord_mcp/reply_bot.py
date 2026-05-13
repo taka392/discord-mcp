@@ -22,6 +22,7 @@ Run::
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -105,7 +106,12 @@ def _openclaw_timeout() -> aiohttp.ClientTimeout:
         total = float((os.getenv("OPENCLAW_GATEWAY_TIMEOUT_SEC") or "600").strip())
     except ValueError:
         total = 600.0
-    return aiohttp.ClientTimeout(total=total)
+    try:
+        conn = float((os.getenv("OPENCLAW_HTTP_CONNECT_SEC") or "30").strip())
+    except ValueError:
+        conn = 30.0
+    # connect を絞ると「処理中」のまま DNS/TCP で無限に待つ」ことを防げる。
+    return aiohttp.ClientTimeout(total=total, connect=conn, sock_connect=conn)
 
 
 def _trust_workspace() -> bool:
@@ -248,6 +254,12 @@ async def _call_openclaw_chat(user_text: str, *, discord_user_id: int) -> str:
                     return f"OpenClaw の応答が JSON ではありません: {raw[:300]}"
 
                 return _text_from_chat_completion_json(data)
+    except asyncio.TimeoutError:
+        return (
+            "OpenClaw へのリクエストがタイムアウトしました。"
+            "Docker 内から `*.ts.net` が引けていない場合は compose の `dns: 100.100.100.100` を確認するか、"
+            "OPENCLAW_GATEWAY_URL を LAN の IP に変えてください。"
+        )
     except aiohttp.ClientError as exc:
         return f"OpenClaw に接続できません: {exc}"
 
@@ -427,10 +439,14 @@ def main() -> None:
             if not message.content:
                 text += "\n※ 添付のみの場合は本文が空になります。"
             await message.channel.send(busy)
-            answer = await _call_llm_backend(
-                _mask_discord_markup_for_llm(text),
-                discord_user_id=message.author.id,
-            )
+            try:
+                answer = await _call_llm_backend(
+                    _mask_discord_markup_for_llm(text),
+                    discord_user_id=message.author.id,
+                )
+            except Exception as exc:
+                print(f"reply_bot DM error: {exc}", file=sys.stderr, flush=True)
+                answer = f"内部エラー（DM）: {exc}"[:1500]
             await _reply_in_chunks(message.channel, answer, reference=message)
             return
 
@@ -455,14 +471,20 @@ def main() -> None:
             reference=message,
             mention_author=False,
         )
-        answer = await _call_llm_backend(
-            _mask_discord_markup_for_llm(body),
-            discord_user_id=message.author.id,
-        )
         try:
-            await reply_notice.delete()
-        except discord.HTTPException:
-            pass
+            try:
+                answer = await _call_llm_backend(
+                    _mask_discord_markup_for_llm(body),
+                    discord_user_id=message.author.id,
+                )
+            except Exception as exc:
+                print(f"reply_bot guild error: {exc}", file=sys.stderr, flush=True)
+                answer = f"内部エラー: {exc}"[:1500]
+        finally:
+            try:
+                await reply_notice.delete()
+            except discord.HTTPException:
+                pass
         await _reply_in_chunks(message.channel, answer, reference=message)
 
     client.run(token)

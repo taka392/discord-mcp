@@ -9,6 +9,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # ホストで Tailscale + MagicDNS でも、bridge コンテナは Quad100 を明示しないと
+    # *.ts.net が引けず OpenClaw へ接続がハングすることがある。
+    dns:
+      - 100.100.100.100
+      - 8.8.8.8
     networks:
       - discord_stack
 
