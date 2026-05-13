@@ -44,10 +44,15 @@ pip install "discord-mcp[reply-bot] @ git+https://github.com/taka392/discord-mcp
 DISCORD_BOT_TOKEN='…' discord-reply-bot
 ```
 
-Behavior（**優先順位: OpenClaw → Cursor ゲートウェイ → エコー**）:
+Behavior:
 
-- **どちらのバックエンドも未設定**: **DM** → 短文の確認エコー。**サーバー** → @メンション／ボットへの返信で「返信テスト」エコーのみ。
-- **`OPENCLAW_GATEWAY_URL` と `OPENCLAW_GATEWAY_TOKEN`（または `OPENCLAW_GATEWAY_PASSWORD`）を設定**: [OpenClaw Gateway](https://docs.openclaw.ai/gateway/openai-http-api) の **`POST /v1/chat/completions`** にユーザ文を送り、**アシスタント本文を Discord に返信**します（長文は自動で分割）。**Cursor の URL があっても OpenClaw が優先**されます。
+- 環境変数 **`DISCORD_LLM_BACKEND`**（省略時は `auto`）でルーティングを固定できます。
+  - **`openclaw`**: **OpenClaw だけ**使う。`OPENCLAW_GATEWAY_URL` + 認証が無いと Discord に設定不足メッセージ。**Cursor には送りません**（`.env` に `CURSOR_AGENT_GATEWAY_URL` が残っていても無視）。
+  - **`cursor`**: Cursor ゲートウェイだけ（OpenClaw があっても無視）。
+  - **`auto`（既定）**: OpenClaw が URL+認証で揃っていれば OpenClaw、さもなければ Cursor、どちらもなければエコー。
+
+- **どちらのバックエンドも未設定**（かつ `auto`）: **DM** → 短文の確認エコー。**サーバー** → @メンション／ボットへの返信で「返信テスト」エコーのみ。
+- **`OPENCLAW_GATEWAY_URL` と `OPENCLAW_GATEWAY_TOKEN`（または `OPENCLAW_GATEWAY_PASSWORD`）を設定**（`auto` または `openclaw`）: [OpenClaw Gateway](https://docs.openclaw.ai/gateway/openai-http-api) の **`POST /v1/chat/completions`** にユーザ文を送り、**アシスタント本文を Discord に返信**します（長文は自動で分割）。`auto` のときは **Cursor の URL があっても OpenClaw が優先**されます。
   - Gateway で **`gateway.http.endpoints.chatCompletions.enabled`** を有効にしてください（無効だと HTTP 404 などになります）。
   - 主な環境変数: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, 任意で `OPENCLAW_CHAT_MODEL`（既定 `openclaw/default`）、`OPENCLAW_SESSION_USER`（未設定時は `discord:<Discord ユーザー ID>` でセッション振り分け）、`OPENCLAW_MESSAGE_CHANNEL`（既定 `discord`、`x-openclaw-message-channel`）、`OPENCLAW_SESSION_KEY`, `OPENCLAW_MODEL_HEADER`, `OPENCLAW_PROMPT_PREFIX`, `OPENCLAW_GATEWAY_TIMEOUT_SEC`。
   - Cursor の `mcp.json` にある OpenClaw 用 URL／トークンと**同じ値**を `discord-reply-bot` の環境に渡せばよいです（MCP と reply-bot は別プロセスのため、自動同期はしません）。
