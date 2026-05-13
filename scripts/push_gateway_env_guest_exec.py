@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """**OpenClaw Gateway と同一 VM** 上の ``discord-mcp`` に ``.env`` を流し込み ``docker compose up`` する。
 
-ボットは ``network_mode: host`` で ``OPENCLAW_GATEWAY_URL=http://127.0.0.1:<port>`` へ向ける（MCP の Tailscale URL は使わない）。
+ボットは ``network_mode: host`` 想定。``.env`` の ``OPENCLAW_GATEWAY_URL`` は次のどちらか。
 
-``~/.cursor/mcp.json`` の ``discord`` / ``openclaw`` からトークンを読みます（URL はローカル固定可）。
+- **同居**（同一 VM に Gateway を起動している）: ``http://127.0.0.1:<port>`` （``--local-gateway-url``）
+- **別ホスト**（Gateway が Tailscale / 別マシン）: MCP と同じ URL（``--use-mcp-gateway-url``）
+
+``--vmid`` は **OpenClaw が動いている Proxmox 上の QEMU vmid**（Discord 専用 VM など別 ID ではない）。
 
 例::
 
   export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
-  python3 scripts/push_gateway_env_guest_exec.py --vmid 100
+  export OPENCLAW_QEMU_VMID=101   # OpenClaw ホストの vmid（毎回 --vmid でも可）
+  python3 scripts/push_gateway_env_guest_exec.py --vmid 101
 
-  # Gateway の listen ポートが 18789 でない場合:
-  python3 scripts/push_gateway_env_guest_exec.py --vmid 100 --local-gateway-url http://127.0.0.1:9999
+  # OpenClaw がボットと別マシン（Tailscale 等）のとき、mcp.json の URL を .env に使う:
+  python3 scripts/push_gateway_env_guest_exec.py --vmid 101 --use-mcp-gateway-url
+
+  # Gateway の listen ポートが 18789 でない同一 VM のとき:
+  python3 scripts/push_gateway_env_guest_exec.py --vmid 101 --local-gateway-url http://127.0.0.1:9999
 
 （旧 Cursor-only: VM 上で ``DISCORD_LLM_BACKEND=cursor`` と ``CURSOR_AGENT_GATEWAY_URL`` を手編集）
 """
@@ -36,9 +43,25 @@ def _shell_sq(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def _resolve_vmid(explicit: int | None) -> int | None:
+    if explicit is not None:
+        return explicit
+    for key in ("OPENCLAW_QEMU_VMID", "DISCORD_MCP_QEMU_VMID"):
+        raw = os.getenv(key, "").strip()
+        if raw.isdigit():
+            return int(raw)
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--vmid", type=int, default=100)
+    ap.add_argument(
+        "--vmid",
+        type=int,
+        default=None,
+        metavar="N",
+        help="QEMU vmid of the **VM that runs OpenClaw** (or set OPENCLAW_QEMU_VMID)",
+    )
     ap.add_argument("--node", default=os.getenv("PROXMOX_NODE", "pve"))
     ap.add_argument("--timeout", type=float, default=300.0)
     ap.add_argument(
@@ -51,7 +74,22 @@ def main() -> int:
         default=os.getenv("OPENCLAW_GATEWAY_LOCAL_URL", "http://127.0.0.1:18789"),
         help="Bot -> OpenClaw on same host (default: env OPENCLAW_GATEWAY_LOCAL_URL or :18789)",
     )
+    ap.add_argument(
+        "--use-mcp-gateway-url",
+        action="store_true",
+        help="Set OPENCLAW_GATEWAY_URL from mcpServers.openclaw.env (when Gateway is on another host)",
+    )
     args = ap.parse_args()
+
+    vmid = _resolve_vmid(args.vmid)
+    if vmid is None:
+        print(
+            "error: OpenClaw を動かしている VM の Proxmox vmid を指定してください。"
+            " 例: --vmid 101  または  export OPENCLAW_QEMU_VMID=101"
+            "（VM100 は別用途のこともあるので、既定の vmid はありません）。",
+            file=sys.stderr,
+        )
+        return 2
 
     mcp_path = pathlib.Path.home() / ".cursor" / "mcp.json"
     mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
@@ -72,9 +110,18 @@ def main() -> int:
         )
         return 1
 
-    oc_url = str(args.local_gateway_url or "").strip()
-    if not oc_url:
-        oc_url = "http://127.0.0.1:18789"
+    if args.use_mcp_gateway_url:
+        oc_url = str(oc.get("OPENCLAW_GATEWAY_URL") or "").strip()
+        if not oc_url:
+            print(
+                "mcp.json: --use-mcp-gateway-url には mcpServers.openclaw.env.OPENCLAW_GATEWAY_URL が必要です。",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        oc_url = str(args.local_gateway_url or "").strip()
+        if not oc_url:
+            oc_url = "http://127.0.0.1:18789"
 
     auth_line = f"OPENCLAW_GATEWAY_TOKEN={oc_tok}" if oc_tok else f"OPENCLAW_GATEWAY_PASSWORD={oc_pw}"
 
@@ -106,7 +153,7 @@ docker compose ps
     try:
         out = client.qemu_guest_exec_wait(
             args.node,
-            args.vmid,
+            vmid,
             ["/bin/bash", "-lc", bash],
             timeout_seconds=args.timeout,
         )

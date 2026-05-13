@@ -103,27 +103,30 @@ COMPOSE_PROFILES=prod docker compose up -d --build
 
 ### Proxmox QEMU VM（ゲストエージェント）
 
-**OpenClaw と同じゲスト**に `discord-mcp` を clone し、Mac から `.env` を流し込んで `docker compose` まで実行します。
+**OpenClaw Gateway を動かしている QEMU VM**（Discord 専用 VM など **別 vmid ではない**）に `discord-mcp` を clone し、Mac から `.env` を流し込んで `docker compose` まで実行します。
 
 1. `~/.cursor/mcp.json` に `mcpServers.discord.env.DISCORD_BOT_TOKEN` と `openclaw` のトークン（またはパスワード）を用意する。
 2. `proxmox-mcp` と同じ **`PROXMOX_*`** をシェルにエクスポートする。
-3. **Gateway ポートが 18789 でない**ときは `OPENCLAW_GATEWAY_LOCAL_URL` または `--local-gateway-url` を指定。
+3. **`--vmid`** には **その OpenClaw ホストの vmid** を渡す。毎回省略したい場合は `export OPENCLAW_QEMU_VMID=<vmid>`。
+4. **Gateway ポートが 18789 でない**ときは `OPENCLAW_GATEWAY_LOCAL_URL` または `--local-gateway-url` を指定。
 
 ```bash
 cd projects/discord-mcp
 export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
-python3 scripts/push_gateway_env_guest_exec.py --vmid 100
-# 例: python3 scripts/push_gateway_env_guest_exec.py --vmid 100 --repo-dir /root/discord-mcp --local-gateway-url http://127.0.0.1:18789
+export OPENCLAW_QEMU_VMID=101   # OpenClaw が乗っている VM（例。100 とは限らない）
+python3 scripts/push_gateway_env_guest_exec.py --vmid 101
+# 例: python3 scripts/push_gateway_env_guest_exec.py --vmid 101 --repo-dir /root/discord-mcp --local-gateway-url http://127.0.0.1:18789
 ```
 
 ### Mac から OpenClaw VM へ SSH でデプロイ
 
-`scripts/deploy_remote.sh` は **リモートで `git pull` → `scp` で `.env` → `homelab_docker_up.sh`** まで行います。生成する **`OPENCLAW_GATEWAY_URL` はデフォルトで `http://127.0.0.1:18789`**（`OPENCLAW_GATEWAY_LOCAL_URL` で変更可）。mcp.json の Tailscale URL は **書き込みません**。
+`scripts/deploy_remote.sh` は **リモートで `git pull` → `scp` で `.env` → `homelab_docker_up.sh`** まで行います。生成する **`OPENCLAW_GATEWAY_URL` はデフォルトで `http://127.0.0.1:18789`**（`OPENCLAW_GATEWAY_LOCAL_URL` で変更可）。**Gateway が別ホストのとき**は `export DISCORD_USE_MCP_GATEWAY_URL=1` とすると **mcp.json の `OPENCLAW_GATEWAY_URL`** を書き込みます。
 
 ```bash
 cd /path/to/discord-mcp
 export HOMELAB_SSH='root@<OpenClaw-VM の IP or tailscale>'
 # optional: export OPENCLAW_GATEWAY_LOCAL_URL='http://127.0.0.1:18789'
+# optional: export DISCORD_USE_MCP_GATEWAY_URL=1   # Gateway が別マシン（MCP の URL を .env に）
 # optional: export HOMELAB_REPO_DIR='/root/discord-mcp'
 ./scripts/deploy_remote.sh
 ```
@@ -133,6 +136,8 @@ export HOMELAB_SSH='root@<OpenClaw-VM の IP or tailscale>'
 Discord から **「ゲートウェイが利用できません (503)」** は **`DISCORD_LLM_BACKEND=cursor`** かつ **`CURSOR_API_KEY` 未設定**なときに出やすいです（Cursor 経路）。
 
 **OpenClaw 既定**では、同一 VM 上で Gateway が待ち受けているか（`ss -tlnp` 等）、`OPENCLAW_GATEWAY_URL` / トークン、Gateway の **chat completions** 有効化を確認してください。
+
+**`127.0.0.1:18789` に接続できない** と出るのは、その VM で **そのポートに Gateway が居ない**ときです。OpenClaw が別サーバなら `.env` をループバックにしてはいけません。`push_gateway_env_guest_exec.py --use-mcp-gateway-url` または `DISCORD_USE_MCP_GATEWAY_URL=1 ./scripts/deploy_remote.sh` で **MCP に書いてある Gateway URL** に戻せます。本当に同居させるなら、その VM で OpenClaw を起動し、`.env` のポートを **`ss`** で合わせてください。
 
 ## Local check
 

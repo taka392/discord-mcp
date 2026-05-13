@@ -7,9 +7,7 @@
 #   optional: HOMELAB_REPO_DIR=/root/discord-mcp
 #   optional: HOMELAB_GIT_URL=... HOMELAB_SSH_OPTS='-i ~/.ssh/id_ed25519'
 #   optional: MCP_JSON_PATH=~/.cursor/mcp.json    (default)
-#   optional: DISCORD_BOT_TOKEN=...               (if set, skips mcp.json; OpenClaw 用キーは .env を手編集)
-#
-set -euo pipefail
+#   optional: DISCORD_USE_MCP_GATEWAY_URL=1   # .env の URL を mcp の OPENCLAW_GATEWAY_URL に（Gateway が別ホストのとき）
 
 : "${HOMELAB_SSH:?Set HOMELAB_SSH, e.g. export HOMELAB_SSH='you@192.168.1.50'}"
 
@@ -40,6 +38,7 @@ trap 'rm -f "$TMP"' EXIT
 
 export TMP_ENV_PATH="$TMP"
 export OPENCLAW_GATEWAY_LOCAL_URL="${OPENCLAW_GATEWAY_LOCAL_URL:-http://127.0.0.1:18789}"
+export DISCORD_USE_MCP_GATEWAY_URL="${DISCORD_USE_MCP_GATEWAY_URL:-}"
 
 if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then
   {
@@ -65,6 +64,11 @@ ot = str(oc.get('OPENCLAW_GATEWAY_TOKEN') or '').strip()
 op = str(oc.get('OPENCLAW_GATEWAY_PASSWORD') or '').strip()
 ocm = str(oc.get('OPENCLAW_CHAT_MODEL') or '').strip() or 'google/gemini-3.1-pro-preview'
 local_u = (os.environ.get('OPENCLAW_GATEWAY_LOCAL_URL') or 'http://127.0.0.1:18789').strip()
+mcp_u = str(oc.get('OPENCLAW_GATEWAY_URL') or '').strip()
+use_mcp = os.environ.get('DISCORD_USE_MCP_GATEWAY_URL', '').strip().lower() in ('1', 'true', 'yes')
+gateway_u = mcp_u if use_mcp else local_u
+if use_mcp and not mcp_u:
+    raise SystemExit('DISCORD_USE_MCP_GATEWAY_URL=1 requires OPENCLAW_GATEWAY_URL in mcp.json')
 if not dt:
     raise SystemExit(
         'DISCORD_BOT_TOKEN empty in mcp.json (mcpServers.discord.env). '
@@ -77,7 +81,7 @@ if not (ot or op):
 lines = [
     'COMPOSE_PROFILES=prod',
     f'DISCORD_BOT_TOKEN={dt}',
-    f'OPENCLAW_GATEWAY_URL={local_u}',
+    f'OPENCLAW_GATEWAY_URL={gateway_u}',
     f'OPENCLAW_CHAT_MODEL={ocm}',
 ]
 lines.append(f'OPENCLAW_GATEWAY_TOKEN={ot}' if ot else f'OPENCLAW_GATEWAY_PASSWORD={op}')
