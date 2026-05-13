@@ -56,6 +56,8 @@ Behavior（**優先順位: OpenClaw → Cursor ゲートウェイ → エコー*
   - ゲートウェイ側に **`CURSOR_API_KEY`** が必要です。CLI の MCP を確認なしで通したいときはゲートウェイの環境に **`AGENT_APPROVE_MCPS=true`**（[`--approve-mcps`](https://cursor.com/docs/cli/reference/parameters)）を設定。**Agent 既定**（`-p`、IDE の Ask モードではない）で動きますが、「Auto」と完全同一ではなくツール許可／サンドボックス次第です。
 - **DM** と **サーバー（@またはボットへの返信）** の両方で上記バックエンドが使われます。
 
+Discord の本文に含まれる **`<@…>` 形式のメンション**は、OpenClaw／Cursor へ渡す前にプレースホルダへ置き換えます（モデルが「ユーザーIDは解決できない」と返すのを防ぐため）。
+
 ### Docker（Proxmox 上の VM / LXC など）
 
 `docker compose` は **`discord-reply-bot`** と **`agent-gateway`** の 2 サービスです（`agent_gateway/` は [cursor-cli-homelab のゲートウェイ](https://github.com/taka392/cursor-cli-homelab)と手動で同期）。

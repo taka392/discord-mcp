@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import Any, List, Optional
 from urllib.parse import urljoin
@@ -38,6 +39,19 @@ import discord
 def _strip_mentions(content: str, user: discord.ClientUser) -> str:
     mention = user.mention
     return content.replace(mention, "").replace(f"<@!{user.id}>", "").strip()
+
+
+def _mask_discord_markup_for_llm(text: str) -> str:
+    """Replace Discord mention / channel / role markup so upstream LLMs do not treat
+    ``<@snowflake>`` as a request to resolve a person outside Discord (refusal spam).
+    Snowflake digits are omitted from the placeholder text on purpose.
+    """
+    s = text
+    s = re.sub(r"<@!?\d+>", "（他ユーザーへのDiscordメンション）", s)
+    s = re.sub(r"<#\d+>", "（Discordチャンネルへのリンク）", s)
+    s = re.sub(r"<@&\d+>", "（Discordロールへのメンション）", s)
+    s = re.sub(r"<a?:\w+:\d+>", "（Discord絵文字）", s)
+    return s
 
 
 def _chunks(text: str, limit: int = 1900) -> List[str]:
@@ -391,7 +405,10 @@ def main() -> None:
                 text += "\n※ 添付のみの場合は本文が空になります。"
             if use_llm:
                 await message.channel.send(busy)
-                answer = await _call_llm_backend(text, discord_user_id=message.author.id)
+                answer = await _call_llm_backend(
+                    _mask_discord_markup_for_llm(text),
+                    discord_user_id=message.author.id,
+                )
                 await _reply_in_chunks(message.channel, answer, reference=message)
             else:
                 await message.channel.send(f"受け取りました: {text[:1900]}")
@@ -419,7 +436,10 @@ def main() -> None:
                 reference=message,
                 mention_author=False,
             )
-            answer = await _call_llm_backend(body, discord_user_id=message.author.id)
+            answer = await _call_llm_backend(
+                _mask_discord_markup_for_llm(body),
+                discord_user_id=message.author.id,
+            )
             try:
                 await reply_notice.delete()
             except discord.HTTPException:
