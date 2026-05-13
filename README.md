@@ -21,7 +21,14 @@
 
 Gateway intents (Presence, Server Members, Message Content) apply to the **Gateway** websocket. This MCP uses **HTTP** only; channel permissions still apply (e.g. Read Message History, Send Messages).
 
-## Reply bot (auto-replies on Discord)
+## OpenClaw 公式の Discord（推奨）
+
+**OpenClaw と Discord をつなぐ正式な方法**は、Gateway の **`channels.discord`** です。Bot トークンと `openclaw config patch` だけで Gateway が Discord に接続し、DM・サーバーでエージェントが応答します。手順は **[Discord — OpenClaw](https://docs.openclaw.ai/channels/discord)** をそのまま実行してください。サンプルパッチは [`../openclaw-mcp/examples/discord_channel.patch.json5`](../openclaw-mcp/examples/discord_channel.patch.json5) を参照。
+
+- **同じ `DISCORD_BOT_TOKEN` で、下記の `reply-bot`（別プロセス）と同時に動かさない**でください。WebSocket が二重になり競合します。
+- HTTP の `/v1/chat/completions` 経由で返したい場合だけ、従来どおり **reply-bot** を使います（別経路）。
+
+## Reply bot（補助: HTTP で OpenClaw に転送）
 
 The MCP alone cannot listen for messages. For **DMs and @mentions** (and replies to the bot when Discord fills the reference), run the optional Gateway bot:
 
