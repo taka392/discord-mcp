@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""VM 上の /root/discord-mcp/.env を再生成し、agent-gateway に CURSOR_API_KEY を入れる。
+"""VM 上の ``/root/discord-mcp/.env`` を OpenClaw 用に再生成し ``docker compose up`` する。
 
-Discord ボットの「ゲートウェイが利用できません (503)」は、このキー欠落時に返ります。
-
-前提:
-  - 環境変数 ``CURSOR_API_KEY``（Cursor ヘッドレス用 ``crsr_...``）をセット
-  - ``~/.cursor/mcp.json`` の ``discord`` / ``cursor-homelab`` でトークン類を読む
-  - Proxmox: ``PROXMOX_BASE_URL`` 等（proxmox-mcp と同じ）
+既定の ``docker compose`` スタックは **discord-reply-bot のみ**（bundled agent-gateway なし）。
+``~/.cursor/mcp.json`` の ``discord`` / ``openclaw`` からトークンと URL を読みます。
 
 例::
-  export CURSOR_API_KEY='crsr_...'
+
   export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
   python3 scripts/push_gateway_env_guest_exec.py --vmid 100
 
-キー発行: https://cursor.com/docs/cli/headless（ダッシュボードの API keys）
+（旧 Cursor-only の一括投入が必要な場合は、VM 上で手編集し ``DISCORD_LLM_BACKEND=cursor`` と
+外部の ``CURSOR_AGENT_GATEWAY_URL`` を設定してください。）
 """
 from __future__ import annotations
 
@@ -37,38 +34,31 @@ def _shell_sq(value: str) -> str:
 
 
 def main() -> int:
-    api_key = (os.getenv("CURSOR_API_KEY") or "").strip()
-    if not api_key:
-        print(
-            "CURSOR_API_KEY が空です。crsr_ で始まるキーを環境変数で渡してください。\n"
-            "  https://cursor.com/docs/cli/headless",
-            file=sys.stderr,
-        )
-        return 1
-
     p = pathlib.Path.home() / ".cursor" / "mcp.json"
     mcp = json.loads(p.read_text(encoding="utf-8"))
     srv = mcp.get("mcpServers") or {}
     discord_t = (srv.get("discord", {}).get("env", {}).get("DISCORD_BOT_TOKEN") or "").strip()
-    hl = srv.get("cursor-homelab", {}).get("env", {}) or {}
-    gw_tok = str(hl.get("CURSOR_HOMELAB_TOKEN") or "").strip()
-    if not discord_t or not gw_tok:
-        print("mcp.json に discord と cursor-homelab のトークンが必要です。", file=sys.stderr)
+    oc = srv.get("openclaw", {}).get("env", {}) or {}
+    oc_url = str(oc.get("OPENCLAW_GATEWAY_URL") or "").strip()
+    oc_tok = str(oc.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
+    oc_pw = str(oc.get("OPENCLAW_GATEWAY_PASSWORD") or "").strip()
+    if not discord_t:
+        print("mcp.json: mcpServers.discord.env.DISCORD_BOT_TOKEN が必要です。", file=sys.stderr)
+        return 1
+    if not oc_url or not (oc_tok or oc_pw):
+        print(
+            "mcp.json: mcpServers.openclaw.env に OPENCLAW_GATEWAY_URL と "
+            "OPENCLAW_GATEWAY_TOKEN（または PASSWORD）が必要です。",
+            file=sys.stderr,
+        )
         return 1
 
-    lines = f"""# push_gateway_env_guest_exec.py（コミット禁止）
+    auth_line = f"OPENCLAW_GATEWAY_TOKEN={oc_tok}" if oc_tok else f"OPENCLAW_GATEWAY_PASSWORD={oc_pw}"
+
+    lines = f"""# push_gateway_env_guest_exec.py（コミット禁止・OpenClaw 既定）
 DISCORD_BOT_TOKEN={discord_t}
-CURSOR_AGENT_GATEWAY_URL=http://agent-gateway:9888
-GATEWAY_TOKEN={gw_tok}
-GATEWAY_ENFORCE_TOKEN=true
-
-CURSOR_API_KEY={api_key}
-
-AGENT_APPROVE_MCPS=true
-AGENT_REQUEST_TIMEOUT_SEC=600
-
-CURSOR_GATEWAY_TRUST_WORKSPACE=true
-CURSOR_GATEWAY_TIMEOUT_SEC=600
+OPENCLAW_GATEWAY_URL={oc_url}
+{auth_line}
 """
     b64 = base64.b64encode(lines.encode("utf-8")).decode("ascii")
     bash = """set -euo pipefail
@@ -76,7 +66,7 @@ cd /root/discord-mcp
 mkdir -p workspace
 printf '%s' {b64} | base64 -d > .env
 chmod 600 .env
-docker compose up -d --force-recreate
+docker compose up -d --build --force-recreate
 docker compose ps
 """.format(b64=_shell_sq(b64))
 
@@ -115,7 +105,7 @@ docker compose ps
     if xc not in (0, None):
         return int(xc) & 255 or 1
 
-    print("Done.ゲートウェイ再起動済み。", file=sys.stderr)
+    print("Done. docker compose 再起動済み（OpenClaw 用 .env）.", file=sys.stderr)
     return 0
 
 

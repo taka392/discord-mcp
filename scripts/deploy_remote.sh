@@ -36,27 +36,40 @@ TMP="$(mktemp)"
 chmod 600 "$TMP"
 trap 'rm -f "$TMP"' EXIT
 
+export TMP_ENV_PATH="$TMP"
+
 if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then
   printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN" > "$TMP"
+  echo "warning: only DISCORD_BOT_TOKEN set — add OPENCLAW_* to remote .env manually for OpenClaw." >&2
 else
   MCP_JSON_PATH="${MCP_JSON_PATH:-$HOME/.cursor/mcp.json}"
   export MCP_JSON_PATH
-  TOKEN="$(python3 -c "
+  python3 -c "
 import json, os, pathlib
 p = pathlib.Path(os.environ['MCP_JSON_PATH']).expanduser()
 if not p.is_file():
     raise SystemExit(f'missing MCP JSON: {p}')
 d = json.loads(p.read_text(encoding='utf-8'))
-t = (d.get('mcpServers') or {}).get('discord', {}).get('env', {}).get('DISCORD_BOT_TOKEN') or ''
-t = str(t).strip()
-if not t:
+srv = d.get('mcpServers') or {}
+dt = (srv.get('discord', {}).get('env', {}).get('DISCORD_BOT_TOKEN') or '').strip()
+oc = srv.get('openclaw', {}).get('env', {}) or {}
+ou = str(oc.get('OPENCLAW_GATEWAY_URL') or '').strip()
+ot = str(oc.get('OPENCLAW_GATEWAY_TOKEN') or '').strip()
+op = str(oc.get('OPENCLAW_GATEWAY_PASSWORD') or '').strip()
+if not dt:
     raise SystemExit(
         'DISCORD_BOT_TOKEN empty in mcp.json (mcpServers.discord.env). '
         'Set it in Cursor MCP or export DISCORD_BOT_TOKEN for this script.'
     )
-print(t, end='')
-")"
-  printf 'DISCORD_BOT_TOKEN=%s\n' "$TOKEN" > "$TMP"
+if not ou or not (ot or op):
+    raise SystemExit(
+        'mcpServers.openclaw.env needs OPENCLAW_GATEWAY_URL and '
+        'OPENCLAW_GATEWAY_TOKEN (or PASSWORD) for OpenClaw-only deploy.'
+    )
+lines = [f'DISCORD_BOT_TOKEN={dt}', f'OPENCLAW_GATEWAY_URL={ou}']
+lines.append(f'OPENCLAW_GATEWAY_TOKEN={ot}' if ot else f'OPENCLAW_GATEWAY_PASSWORD={op}')
+pathlib.Path(os.environ['TMP_ENV_PATH']).write_text('\\n'.join(lines) + '\\n', encoding='utf-8')
+" || exit 1
 fi
 
 if [[ -n "${HOMELAB_REPO_DIR:-}" ]]; then

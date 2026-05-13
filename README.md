@@ -52,8 +52,8 @@ Behavior:
   - Cursor の `mcp.json` の `openclaw` と**同じ URL／トークン**を reply-bot の環境に渡せばよいです（別プロセスのため自動同期はしません）。
   - OpenClaw が未設定のときは、DM／メンションでも **設定不足の説明**が返ります（旧来の短文エコーはしません）。
 
-- **旧来の Cursor `agent-gateway` だけ使う**場合（このリポジトリ付属の Docker Compose など）: `.env` に **`DISCORD_LLM_BACKEND=cursor`** を追加してください。[`cursor-cli-homelab`](../cursor-cli-homelab) と同じ **`POST /v1/prompt`** で `agent -p` の標準出力を返します。
-  - `.env`: `CURSOR_AGENT_GATEWAY_URL`, `GATEWAY_TOKEN`, `CURSOR_GATEWAY_TRUST_WORKSPACE`, `CURSOR_GATEWAY_TIMEOUT_SEC`, 任意で `CURSOR_GATEWAY_PROMPT_PREFIX`。ゲートウェイ側に **`CURSOR_API_KEY`**。任意で **`AGENT_APPROVE_MCPS=true`**（[`--approve-mcps`](https://cursor.com/docs/cli/reference/parameters)）。
+- **Cursor の HTTP ゲートウェイだけ使う**場合（[`cursor-cli-homelab`](../cursor-cli-homelab) を**別ホスト／別 compose**で動かしているとき）: `.env` に **`DISCORD_LLM_BACKEND=cursor`** と、到達可能な **`CURSOR_AGENT_GATEWAY_URL`**（例: `http://192.168.x.x:9888`）を書いてください。**POST /v1/prompt`** で `agent -p` の標準出力を返します。
+  - ゲートウェイ側に **`CURSOR_API_KEY`**、任意で **`AGENT_APPROVE_MCPS=true`** など。リポジトリ付属の `docker compose` には **agent-gateway は含みません**（`agent_gateway/` は手動同期用の参照実装のまま残しています）。
 
 - **DM** と **サーバー（@またはボットへの返信）** の両方で上記のいずれかが使われます。
 
@@ -61,13 +61,11 @@ Discord の本文に含まれる **`<@…>` 形式のメンション**は、LLM 
 
 ### Docker（Proxmox 上の VM / LXC など）
 
-`docker compose` は **`discord-reply-bot`** と **`agent-gateway`** の 2 サービスです（`agent_gateway/` は [cursor-cli-homelab のゲートウェイ](https://github.com/taka392/cursor-cli-homelab)と手動で同期）。
+`docker compose` は **`discord-reply-bot` の 1 サービスのみ**です（**bundled の `agent-gateway` は含みません**。OpenClaw は別 VM／Tailscale 等で動かしている前提です）。
 
-- **reply-bot の既定は OpenClaw 専用**です。Compose サンプルのまま **Cursor ゲートウェイだけ**使う場合は、`.env` に **`DISCORD_LLM_BACKEND=cursor`** を必ず書いてください（書かないと `CURSOR_AGENT_GATEWAY_URL` があっても OpenClaw 未設定エラーになります）。
-- OpenClaw を使う場合は、同じ `.env` に **`OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`** を足してください（`DISCORD_LLM_BACKEND` は省略で可）。
-- **`DISCORD_LLM_BACKEND=cursor`** のとき、`CURSOR_AGENT_GATEWAY_URL` は既定サンプルのとおり **`http://agent-gateway:9888`** でよいです（同一 Compose のブリッジ内で名前解決）。別ホストの LAN IP を向ける必要は通常ありません。
-- ホストに **`9888` を公開**するので、Mac の MCP で `CURSOR_HOMELAB_URL=http://<この VM の LAN IP>:9888` とすれば、`cursor-homelab-mcp` もこのゲートウェイを共有可能です。
-- `.env` は両コンテナに読み込まれるので、**`DISCORD_BOT_TOKEN`・`CURSOR_API_KEY`・`GATEWAY_TOKEN` は Git に載せない**こと。
+- **必須**: `.env` に **`DISCORD_BOT_TOKEN`** と **`OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`**（または `PASSWORD`）。
+- **Cursor 経路**に切り替えるときだけ `.env` に **`DISCORD_LLM_BACKEND=cursor`** と、**別途動いている** `CURSOR_AGENT_GATEWAY_URL` を書いてください。
+- **`DISCORD_BOT_TOKEN`・`OPENCLAW_GATEWAY_TOKEN` は Git に載せない**こと。
 
 ゲスト側の手順例:
 
@@ -75,14 +73,14 @@ Discord の本文に含まれる **`<@…>` 形式のメンション**は、LLM 
 git clone https://github.com/taka392/discord-mcp.git
 cd discord-mcp
 ./scripts/homelab_docker_up.sh
-# 初回は .env が無いので .env.example がコピーされる → DISCORD_BOT_TOKEN / CURSOR_API_KEY / GATEWAY_TOKEN 等を編集して再度
+# 初回は .env が無いので .env.example がコピーされる → DISCORD_BOT_TOKEN と OPENCLAW_* を編集して再度
 ```
 
 手動でも同じです。
 
 ```bash
 cp .env.example .env
-# edit .env （必須: DISCORD_BOT_TOKEN, CURSOR_API_KEY …）
+# edit .env （必須: DISCORD_BOT_TOKEN, OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN）
 docker compose up -d --build
 docker compose logs -f
 ```
@@ -131,15 +129,18 @@ export HOMELAB_SSH='you@192.168.x.x'          # 必須
 
 **注意:** デプロイのたびにリモートの `.env` はローカル設定と同期される（トークンを homelab だけで管理したい場合はサーバー上で `homelab_docker_up.sh` だけ使う）。
 
-Discord から **「ゲートウェイが利用できません (503)」** と出るときは、コンテナ内で **`CURSOR_API_KEY` が空**なことが多いです（[Headless CLI](https://cursor.com/docs/cli/headless) の API キーを homelab の `.env` に入れる）。
+Discord から **「ゲートウェイが利用できません (503)」** と出るのは、**`DISCORD_LLM_BACKEND=cursor`** で Cursor 経路を使っているときに、コンテナ内で **`CURSOR_API_KEY` が空**なことが多いです（[Headless CLI](https://cursor.com/docs/cli/headless)）。
 
-Mac から Proxmox で VM100 に流し込む例::
+**OpenClaw 既定**のときは、Gateway の **chat completions** や **認証トークン**を確認してください。
+
+Mac から Proxmox で VM100 に OpenClaw 用 `.env` を流し込む例::
 
 ```bash
-export CURSOR_API_KEY='crsr_...'   # Cursor ダッシュボードで発行
 export PROXMOX_BASE_URL=... PROXMOX_TOKEN_ID=... PROXMOX_TOKEN_SECRET=... PROXMOX_VERIFY_TLS=false
 python3 scripts/push_gateway_env_guest_exec.py --vmid 100
 ```
+
+（`~/.cursor/mcp.json` の **discord** と **openclaw** を読みます。）
 
 ## Local check
 

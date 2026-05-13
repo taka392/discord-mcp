@@ -1,5 +1,5 @@
-# Proxmox 等で: cp .env.example .env を編集 → docker compose up -d --build
-# 「別マシンの :9888」ではなく、この compose に含まれる agent-gateway と Docker ネットワークで繋ぐ（推奨）。
+# Proxmox 等: cp .env.example .env を編集（DISCORD_BOT_TOKEN + OPENCLAW_*）→ docker compose up -d --build
+# 既定スタックは discord-reply-bot のみ（OpenClaw）。Cursor agent-gateway は含みません。
 
 services:
   discord-reply-bot:
@@ -7,26 +7,8 @@ services:
     image: discord-reply-bot:latest
     container_name: discord-reply-bot
     restart: unless-stopped
-    depends_on:
-      - agent-gateway
     env_file:
       - .env
-    networks:
-      - discord_stack
-
-  agent-gateway:
-    build:
-      context: ./agent_gateway
-      dockerfile: Dockerfile
-    image: discord-stack-agent-gateway:latest
-    container_name: discord-stack-agent-gateway
-    restart: unless-stopped
-    ports:
-      - "9888:9888"
-    env_file:
-      - .env
-    volumes:
-      - ./workspace:/workspace
     networks:
       - discord_stack
 
