@@ -44,13 +44,17 @@ pip install "discord-mcp[reply-bot] @ git+https://github.com/taka392/discord-mcp
 DISCORD_BOT_TOKEN='…' discord-reply-bot
 ```
 
-Behavior:
+Behavior（**優先順位: OpenClaw → Cursor ゲートウェイ → エコー**）:
 
-- **`CURSOR_AGENT_GATEWAY_URL` が未設定**: **DM** → 短文の確認エコー。**サーバー** → @メンション／ボットへの返信で「返信テスト」エコーのみ。
-- **`CURSOR_AGENT_GATEWAY_URL` を設定**（[`cursor-cli-homelab`](../cursor-cli-homelab) の `agent-gateway`、`POST /v1/prompt` と同じ）: 上記と同じトリガで、プロンプトをゲートウェイ経由で **`agent -p`** に渡し、**標準出力を Discord に返信**します（長文は自動で分割）。
+- **どちらのバックエンドも未設定**: **DM** → 短文の確認エコー。**サーバー** → @メンション／ボットへの返信で「返信テスト」エコーのみ。
+- **`OPENCLAW_GATEWAY_URL` と `OPENCLAW_GATEWAY_TOKEN`（または `OPENCLAW_GATEWAY_PASSWORD`）を設定**: [OpenClaw Gateway](https://docs.openclaw.ai/gateway/openai-http-api) の **`POST /v1/chat/completions`** にユーザ文を送り、**アシスタント本文を Discord に返信**します（長文は自動で分割）。**Cursor の URL があっても OpenClaw が優先**されます。
+  - Gateway で **`gateway.http.endpoints.chatCompletions.enabled`** を有効にしてください（無効だと HTTP 404 などになります）。
+  - 主な環境変数: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, 任意で `OPENCLAW_CHAT_MODEL`（既定 `openclaw/default`）、`OPENCLAW_SESSION_USER`（未設定時は `discord:<Discord ユーザー ID>` でセッション振り分け）、`OPENCLAW_MESSAGE_CHANNEL`（既定 `discord`、`x-openclaw-message-channel`）、`OPENCLAW_SESSION_KEY`, `OPENCLAW_MODEL_HEADER`, `OPENCLAW_PROMPT_PREFIX`, `OPENCLAW_GATEWAY_TIMEOUT_SEC`。
+  - Cursor の `mcp.json` にある OpenClaw 用 URL／トークンと**同じ値**を `discord-reply-bot` の環境に渡せばよいです（MCP と reply-bot は別プロセスのため、自動同期はしません）。
+- **`CURSOR_AGENT_GATEWAY_URL` のみ設定**（[`cursor-cli-homelab`](../cursor-cli-homelab) の `agent-gateway`、`POST /v1/prompt` と同じ）: 上記と同じトリガで、プロンプトをゲートウェイ経由で **`agent -p`** に渡し、**標準出力を Discord に返信**します。
   - `.env`: `CURSOR_AGENT_GATEWAY_URL`, `GATEWAY_TOKEN`（ゲートウェイでトークン必須のとき）、`CURSOR_GATEWAY_TRUST_WORKSPACE`, `CURSOR_GATEWAY_TIMEOUT_SEC`, 任意で `CURSOR_GATEWAY_PROMPT_PREFIX`。
   - ゲートウェイ側に **`CURSOR_API_KEY`** が必要です。CLI の MCP を確認なしで通したいときはゲートウェイの環境に **`AGENT_APPROVE_MCPS=true`**（[`--approve-mcps`](https://cursor.com/docs/cli/reference/parameters)）を設定。**Agent 既定**（`-p`、IDE の Ask モードではない）で動きますが、「Auto」と完全同一ではなくツール許可／サンドボックス次第です。
-- **DM** と **サーバー（@またはボットへの返信）** の両方でゲートウェイ連携あり。
+- **DM** と **サーバー（@またはボットへの返信）** の両方で上記バックエンドが使われます。
 
 ### Docker（Proxmox 上の VM / LXC など）
 

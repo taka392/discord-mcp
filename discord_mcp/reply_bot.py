@@ -1,15 +1,22 @@
-"""Long-running Discord bot: DMs / @mentions → optional Cursor Agent via homelab gateway.
+"""Long-running Discord bot: DMs / @mentions → OpenClaw or Cursor Agent gateway.
 
 Uses ``DISCORD_BOT_TOKEN``. Requires **Message Content Intent** for guild text.
 
-When ``CURSOR_AGENT_GATEWAY_URL`` is set, each eligible message is sent to
-``POST {url}/v1/prompt`` (same contract as cursor-cli-homelab ``agent-gateway``)
-and the agent stdout is posted back to Discord. Otherwise falls back to a short
-echo (previous test behavior).
+**Backends (first match wins)**
 
-Gateway should run ``agent -p`` (full **agent** mode, not ``--mode ask``).
-Set ``AGENT_APPROVE_MCPS=true`` on the gateway container for hands-free MCP
-approval (closer to IDE "Auto").
+1. **OpenClaw** — ``OPENCLAW_GATEWAY_URL`` and ``OPENCLAW_GATEWAY_TOKEN`` (or
+   ``OPENCLAW_GATEWAY_PASSWORD``) are set. Sends ``POST {OPENCLAW_GATEWAY_URL}/v1/chat/completions``
+   (OpenAI-compatible). Requires ``gateway.http.endpoints.chatCompletions.enabled``
+   on the OpenClaw Gateway. See https://docs.openclaw.ai/gateway/openai-http-api
+
+2. **Cursor homelab** — ``CURSOR_AGENT_GATEWAY_URL`` is set. Each eligible message
+   is sent to ``POST {url}/v1/prompt`` (cursor-cli-homelab ``agent-gateway``);
+   stdout is posted back to Discord.
+
+3. **Echo** — neither backend configured; short test replies only.
+
+Gateway (Cursor path) should run ``agent -p``. Set ``AGENT_APPROVE_MCPS=true``
+on the gateway container for hands-free MCP approval.
 
 Run::
 
@@ -52,6 +59,44 @@ def _gateway_token() -> str:
     return (os.getenv("GATEWAY_TOKEN") or "").strip()
 
 
+def _openclaw_base_url() -> str:
+    return (os.getenv("OPENCLAW_GATEWAY_URL") or "").strip().rstrip("/")
+
+
+def _openclaw_auth_headers() -> dict[str, str]:
+    token = (os.getenv("OPENCLAW_GATEWAY_TOKEN") or "").strip()
+    password = (os.getenv("OPENCLAW_GATEWAY_PASSWORD") or "").strip()
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    if password:
+        return {"Authorization": f"Bearer {password}"}
+    return {}
+
+
+def _openclaw_configured() -> bool:
+    return bool(_openclaw_base_url() and _openclaw_auth_headers())
+
+
+def _openclaw_chat_model() -> str:
+    return (os.getenv("OPENCLAW_CHAT_MODEL") or "openclaw/default").strip()
+
+
+def _openclaw_message_channel() -> str:
+    return (os.getenv("OPENCLAW_MESSAGE_CHANNEL") or "discord").strip()
+
+
+def _openclaw_prompt_prefix() -> str:
+    return (os.getenv("OPENCLAW_PROMPT_PREFIX") or "").strip()
+
+
+def _openclaw_timeout() -> aiohttp.ClientTimeout:
+    try:
+        total = float((os.getenv("OPENCLAW_GATEWAY_TIMEOUT_SEC") or "600").strip())
+    except ValueError:
+        total = 600.0
+    return aiohttp.ClientTimeout(total=total)
+
+
 def _trust_workspace() -> bool:
     v = (os.getenv("CURSOR_GATEWAY_TRUST_WORKSPACE") or "true").strip().lower()
     return v in ("1", "true", "yes", "on")
@@ -67,6 +112,145 @@ def _gateway_timeout() -> aiohttp.ClientTimeout:
 
 def _prompt_prefix() -> str:
     return (os.getenv("CURSOR_GATEWAY_PROMPT_PREFIX") or "").strip()
+
+
+def _text_from_chat_completion_json(data: Any) -> str:
+    if not isinstance(data, dict):
+        return f"OpenClaw の応答形式が不正です: {data!r}"[:500]
+
+    if data.get("ok") is False:
+        err = data.get("error") or {}
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        return f"OpenClaw: {msg}"[:1500]
+
+    err_top = data.get("error")
+    if isinstance(err_top, dict):
+        msg = err_top.get("message") or str(err_top)
+        return f"OpenClaw エラー: {msg}"[:1500]
+
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return (
+            "OpenClaw: 応答に choices がありません。"
+            f" {json.dumps(data, ensure_ascii=False)[:500]}"
+        )
+
+    c0 = choices[0]
+    if not isinstance(c0, dict):
+        return "OpenClaw: choices[0] が不正です。"
+
+    msg = c0.get("message")
+    if isinstance(msg, dict):
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content.strip() or "（空の応答）"
+        if isinstance(content, list):
+            parts: List[str] = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    parts.append(str(part.get("text", "")))
+                elif isinstance(part, str):
+                    parts.append(part)
+            joined = "".join(parts).strip()
+            return joined or "（空の応答）"
+
+    delta = c0.get("delta")
+    if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+        return (delta["content"] or "").strip() or "（空の応答）"
+
+    return (
+        "OpenClaw: アシスタント本文を解析できません。"
+        f" {json.dumps(c0, ensure_ascii=False)[:800]}"
+    )
+
+
+async def _call_openclaw_chat(user_text: str, *, discord_user_id: int) -> str:
+    if not _openclaw_configured():
+        return ""
+
+    base = _openclaw_base_url()
+    url = urljoin(base + "/", "v1/chat/completions")
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        **_openclaw_auth_headers(),
+    }
+    ch = _openclaw_message_channel()
+    if ch:
+        headers["x-openclaw-message-channel"] = ch
+    sk = (os.getenv("OPENCLAW_SESSION_KEY") or "").strip()
+    if sk:
+        headers["x-openclaw-session-key"] = sk
+    om = (os.getenv("OPENCLAW_MODEL_HEADER") or "").strip()
+    if om:
+        headers["x-openclaw-model"] = om
+
+    body_text = user_text
+    prefix = _openclaw_prompt_prefix()
+    if prefix:
+        body_text = f"{prefix}\n\n{user_text}"
+
+    body: dict[str, Any] = {
+        "model": _openclaw_chat_model(),
+        "messages": [{"role": "user", "content": body_text}],
+        "stream": False,
+        "user": (os.getenv("OPENCLAW_SESSION_USER") or f"discord:{discord_user_id}").strip(),
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=body,
+                headers=headers,
+                timeout=_openclaw_timeout(),
+            ) as resp:
+                raw = await resp.text()
+                if resp.status == 401:
+                    return (
+                        "OpenClaw 認証エラー (401)。"
+                        "OPENCLAW_GATEWAY_TOKEN（または PASSWORD）を Gateway と揃えてください。"
+                    )
+                if resp.status == 404:
+                    return (
+                        "OpenClaw が HTTP 404 を返しました。"
+                        "chat completions が無効か URL が違う可能性があります。"
+                        "Gateway で gateway.http.endpoints.chatCompletions.enabled を true にし、"
+                        "OPENCLAW_GATEWAY_URL が Gateway のベース URL か確認してください。"
+                    )
+                if resp.status >= 400:
+                    detail = raw[:600]
+                    try:
+                        err = json.loads(raw)
+                        if isinstance(err, dict):
+                            e = err.get("error")
+                            if isinstance(e, dict):
+                                detail = str(e.get("message", detail))
+                            elif isinstance(e, str):
+                                detail = e
+                    except json.JSONDecodeError:
+                        pass
+                    return f"OpenClaw エラー HTTP {resp.status}: {detail}"
+
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    return f"OpenClaw の応答が JSON ではありません: {raw[:300]}"
+
+                return _text_from_chat_completion_json(data)
+    except aiohttp.ClientError as exc:
+        return f"OpenClaw に接続できません: {exc}"
+
+
+def _use_llm_backend() -> bool:
+    return _openclaw_configured() or bool(_gateway_url())
+
+
+async def _call_llm_backend(user_text: str, *, discord_user_id: int) -> str:
+    if _openclaw_configured():
+        return await _call_openclaw_chat(user_text, discord_user_id=discord_user_id)
+    if _gateway_url():
+        return await _call_cursor_gateway(user_text)
+    return ""
 
 
 async def _call_cursor_gateway(user_text: str) -> str:
@@ -170,14 +354,20 @@ def main() -> None:
     async def on_ready() -> None:
         assert client.user
         print(f"Logged in as {client.user} (id={client.user.id})", flush=True)
-        if _gateway_url():
+        if _openclaw_configured():
+            print(
+                f"OpenClaw: {_openclaw_base_url()} (model={_openclaw_chat_model()}, "
+                f"channel={_openclaw_message_channel()!r})",
+                flush=True,
+            )
+        elif _gateway_url():
             print(
                 f"Cursor gateway: {_gateway_url()} (trust_workspace={_trust_workspace()})",
                 flush=True,
             )
         else:
             print(
-                "CURSOR_AGENT_GATEWAY_URL unset — echo fallback only.",
+                "No LLM backend (OpenClaw / Cursor gateway) — echo fallback only.",
                 flush=True,
             )
 
@@ -187,16 +377,21 @@ def main() -> None:
             return
         assert client.user
 
-        use_cursor = bool(_gateway_url())
+        use_llm = _use_llm_backend()
+        busy = (
+            "… OpenClaw で処理中（完了まで数分かかることがあります）"
+            if _openclaw_configured()
+            else "… Cursor で処理中（完了まで数分かかることがあります）"
+        )
 
         # Direct message
         if isinstance(message.channel, discord.DMChannel):
             text = (message.content or "").strip() or "（本文なし）"
             if not message.content:
                 text += "\n※ 添付のみの場合は本文が空になります。"
-            if use_cursor:
-                await message.channel.send("… Cursor で処理中（完了まで数分かかることがあります）")
-                answer = await _call_cursor_gateway(text)
+            if use_llm:
+                await message.channel.send(busy)
+                answer = await _call_llm_backend(text, discord_user_id=message.author.id)
                 await _reply_in_chunks(message.channel, answer, reference=message)
             else:
                 await message.channel.send(f"受け取りました: {text[:1900]}")
@@ -218,13 +413,13 @@ def main() -> None:
 
         body = _strip_mentions(message.content or "", client.user) or "（メンションのみ）"
 
-        if use_cursor:
+        if use_llm:
             reply_notice = await message.channel.send(
-                "… Cursor で処理中（完了まで数分かかることがあります）",
+                busy,
                 reference=message,
                 mention_author=False,
             )
-            answer = await _call_cursor_gateway(body)
+            answer = await _call_llm_backend(body, discord_user_id=message.author.id)
             try:
                 await reply_notice.delete()
             except discord.HTTPException:
