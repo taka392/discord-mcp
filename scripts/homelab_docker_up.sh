@@ -36,6 +36,18 @@ if [[ -z "$val" ]]; then
   exit 1
 fi
 
+# reply-bot defaults to OpenClaw only; this compose stack uses Cursor agent-gateway.
+if ! grep -qE '^[[:space:]]*DISCORD_LLM_BACKEND=' .env; then
+  oc_line="$(grep -E '^[[:space:]]*OPENCLAW_GATEWAY_URL=' .env | head -1 || true)"
+  oc_val="${oc_line#*=}"
+  oc_val="${oc_val%%#*}"
+  oc_val="$(printf '%s' "$oc_val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^['\"]//" -e "s/['\"]$//")"
+  if [[ -z "$oc_val" ]]; then
+    printf '\n# homelab_docker_up.sh: reply-bot defaults to OpenClaw; this compose uses Cursor agent-gateway.\nDISCORD_LLM_BACKEND=cursor\n' >> .env
+    echo "note: appended DISCORD_LLM_BACKEND=cursor to .env (add OPENCLAW_GATEWAY_URL+token to use OpenClaw in Docker)." >&2
+  fi
+fi
+
 docker compose up -d --build
 docker compose ps
 echo ""

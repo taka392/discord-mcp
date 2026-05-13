@@ -1,24 +1,19 @@
-"""Long-running Discord bot: DMs / @mentions → OpenClaw or Cursor Agent gateway.
+"""Long-running Discord bot: DMs / @mentions → **OpenClaw** (default).
 
 Uses ``DISCORD_BOT_TOKEN``. Requires **Message Content Intent** for guild text.
 
-**Backends (routing)**
+**Default:** only **OpenClaw** ``POST {OPENCLAW_GATEWAY_URL}/v1/chat/completions``.
+There is **no fallback** to Cursor unless you explicitly set
+``DISCORD_LLM_BACKEND=cursor`` (legacy / bundled compose).
 
-- Env **`DISCORD_LLM_BACKEND`** (optional): ``auto`` (default), ``openclaw``, ``cursor``.
-  - ``openclaw``: **OpenClaw のみ**（未設定なら Discord に設定不足メッセージ。**Cursor には送らない**）。
-  - ``cursor``: Cursor ゲートウェイのみ。
-  - ``auto``: OpenClaw が URL+認証で揃っていれば OpenClaw、さもなければ Cursor（従来どおり）。
+Env **``DISCORD_LLM_BACKEND``** (optional): ``openclaw`` (default if unset or unknown),
+or ``cursor`` for Cursor homelab ``POST …/v1/prompt`` only.
 
-1. **OpenClaw** — ``POST {OPENCLAW_GATEWAY_URL}/v1/chat/completions``
-   (OpenAI-compatible). Requires ``gateway.http.endpoints.chatCompletions.enabled``
-   on the OpenClaw Gateway. See https://docs.openclaw.ai/gateway/openai-http-api
+OpenClaw requires ``gateway.http.endpoints.chatCompletions.enabled`` on the gateway.
+See https://docs.openclaw.ai/gateway/openai-http-api
 
-2. **Cursor homelab** — ``CURSOR_AGENT_GATEWAY_URL`` …（``auto`` / ``cursor`` 時のみ）
-
-3. **Echo** — LLM 未使用時の短文テストのみ。
-
-Gateway (Cursor path) should run ``agent -p``. Set ``AGENT_APPROVE_MCPS=true``
-on the gateway container for hands-free MCP approval.
+Cursor path (only when ``DISCORD_LLM_BACKEND=cursor``): gateway should run ``agent -p``.
+Set ``AGENT_APPROVE_MCPS=true`` on the gateway container for hands-free MCP approval.
 
 Run::
 
@@ -258,61 +253,37 @@ async def _call_openclaw_chat(user_text: str, *, discord_user_id: int) -> str:
 
 
 def _llm_backend_mode() -> str:
-    """auto | openclaw | cursor"""
+    """openclaw (default) | cursor (opt-in legacy)."""
     raw = (
-        os.getenv("DISCORD_LLM_BACKEND") or os.getenv("DISCORD_REPLY_BACKEND") or "auto"
+        os.getenv("DISCORD_LLM_BACKEND") or os.getenv("DISCORD_REPLY_BACKEND") or "openclaw"
     ).strip().lower()
-    if raw in ("openclaw", "oc", "open_claw"):
-        return "openclaw"
     if raw in ("cursor", "homelab", "agent-gateway", "agent_gateway"):
         return "cursor"
-    return "auto"
-
-
-def _use_llm_backend() -> bool:
-    mode = _llm_backend_mode()
-    if mode == "openclaw":
-        return True
-    if mode == "cursor":
-        return True
-    return _openclaw_configured() or bool(_gateway_url())
+    return "openclaw"
 
 
 async def _call_llm_backend(user_text: str, *, discord_user_id: int) -> str:
-    mode = _llm_backend_mode()
-    if mode == "openclaw":
-        if not _openclaw_configured():
-            return (
-                "【設定不足】このボットは OpenClaw 専用モード（DISCORD_LLM_BACKEND=openclaw）です。"
-                "OPENCLAW_GATEWAY_URL と OPENCLAW_GATEWAY_TOKEN（または OPENCLAW_GATEWAY_PASSWORD）を "
-                "discord-reply-bot の環境に設定してください。Cursor ゲートウェイには送っていません。"
-            )
-        return await _call_openclaw_chat(user_text, discord_user_id=discord_user_id)
-    if mode == "cursor":
+    if _llm_backend_mode() == "cursor":
         if not _gateway_url():
             return (
-                "【設定不足】このボットは Cursor 専用モード（DISCORD_LLM_BACKEND=cursor）ですが、"
+                "【設定不足】DISCORD_LLM_BACKEND=cursor ですが "
                 "CURSOR_AGENT_GATEWAY_URL が未設定です。"
             )
         return await _call_cursor_gateway(user_text)
-    if _openclaw_configured():
-        return await _call_openclaw_chat(user_text, discord_user_id=discord_user_id)
-    if _gateway_url():
-        return await _call_cursor_gateway(user_text)
-    return ""
+    if not _openclaw_configured():
+        return (
+            "【設定不足】このボットは **OpenClaw のみ**を使います（Cursor には送りません）。"
+            "OPENCLAW_GATEWAY_URL と OPENCLAW_GATEWAY_TOKEN（または OPENCLAW_GATEWAY_PASSWORD）を "
+            "discord-reply-bot の環境に設定してください。"
+            " 旧来の Cursor ゲートウェイだけ使う場合は DISCORD_LLM_BACKEND=cursor を設定してください。"
+        )
+    return await _call_openclaw_chat(user_text, discord_user_id=discord_user_id)
 
 
 def _busy_wait_message() -> str:
-    mode = _llm_backend_mode()
-    if mode == "openclaw":
-        return "… OpenClaw で処理中（完了まで数分かかることがあります）"
-    if mode == "cursor":
+    if _llm_backend_mode() == "cursor":
         return "… Cursor で処理中（完了まで数分かかることがあります）"
-    if _openclaw_configured():
-        return "… OpenClaw で処理中（完了まで数分かかることがあります）"
-    if _gateway_url():
-        return "… Cursor で処理中（完了まで数分かかることがあります）"
-    return "… 処理中（完了まで数分かかることがあります）"
+    return "… OpenClaw で処理中（完了まで数分かかることがあります）"
 
 
 async def _call_cursor_gateway(user_text: str) -> str:
@@ -418,47 +389,29 @@ def main() -> None:
         print(f"Logged in as {client.user} (id={client.user.id})", flush=True)
         mode = _llm_backend_mode()
         print(f"DISCORD_LLM_BACKEND={mode!r}", flush=True)
-        if mode == "openclaw":
+        if mode == "cursor":
+            if _gateway_url():
+                print(
+                    f"Cursor legacy: {_gateway_url()} (trust_workspace={_trust_workspace()})",
+                    flush=True,
+                )
+            else:
+                print(
+                    "DISCORD_LLM_BACKEND=cursor but CURSOR_AGENT_GATEWAY_URL missing.",
+                    flush=True,
+                )
+        else:
             if _openclaw_configured():
                 print(
-                    f"OpenClaw only: {_openclaw_base_url()} (model={_openclaw_chat_model()}, "
+                    f"OpenClaw: {_openclaw_base_url()} (model={_openclaw_chat_model()}, "
                     f"channel={_openclaw_message_channel()!r})",
                     flush=True,
                 )
             else:
                 print(
-                    "OpenClaw-only mode but OPENCLAW_GATEWAY_URL+auth missing — "
-                    "replies will be a config error until fixed.",
+                    "OpenClaw URL+auth missing — replies will be a config error until fixed.",
                     flush=True,
                 )
-        elif mode == "cursor":
-            if _gateway_url():
-                print(
-                    f"Cursor only: {_gateway_url()} (trust_workspace={_trust_workspace()})",
-                    flush=True,
-                )
-            else:
-                print(
-                    "Cursor-only mode but CURSOR_AGENT_GATEWAY_URL missing.",
-                    flush=True,
-                )
-        elif _openclaw_configured():
-            print(
-                f"OpenClaw (auto): {_openclaw_base_url()} (model={_openclaw_chat_model()}, "
-                f"channel={_openclaw_message_channel()!r})",
-                flush=True,
-            )
-        elif _gateway_url():
-            print(
-                f"Cursor gateway (auto): {_gateway_url()} "
-                f"(trust_workspace={_trust_workspace()})",
-                flush=True,
-            )
-        else:
-            print(
-                "No LLM backend (OpenClaw / Cursor gateway) — echo fallback only.",
-                flush=True,
-            )
 
     @client.event
     async def on_message(message: discord.Message) -> None:
@@ -466,7 +419,6 @@ def main() -> None:
             return
         assert client.user
 
-        use_llm = _use_llm_backend()
         busy = _busy_wait_message()
 
         # Direct message
@@ -474,15 +426,12 @@ def main() -> None:
             text = (message.content or "").strip() or "（本文なし）"
             if not message.content:
                 text += "\n※ 添付のみの場合は本文が空になります。"
-            if use_llm:
-                await message.channel.send(busy)
-                answer = await _call_llm_backend(
-                    _mask_discord_markup_for_llm(text),
-                    discord_user_id=message.author.id,
-                )
-                await _reply_in_chunks(message.channel, answer, reference=message)
-            else:
-                await message.channel.send(f"受け取りました: {text[:1900]}")
+            await message.channel.send(busy)
+            answer = await _call_llm_backend(
+                _mask_discord_markup_for_llm(text),
+                discord_user_id=message.author.id,
+            )
+            await _reply_in_chunks(message.channel, answer, reference=message)
             return
 
         # Guild: @bot mention or reply to bot's message
@@ -501,24 +450,20 @@ def main() -> None:
 
         body = _strip_mentions(message.content or "", client.user) or "（メンションのみ）"
 
-        if use_llm:
-            reply_notice = await message.channel.send(
-                busy,
-                reference=message,
-                mention_author=False,
-            )
-            answer = await _call_llm_backend(
-                _mask_discord_markup_for_llm(body),
-                discord_user_id=message.author.id,
-            )
-            try:
-                await reply_notice.delete()
-            except discord.HTTPException:
-                pass
-            await _reply_in_chunks(message.channel, answer, reference=message)
-            return
-
-        await message.channel.send(f"返信テスト: {body[:1900]}")
+        reply_notice = await message.channel.send(
+            busy,
+            reference=message,
+            mention_author=False,
+        )
+        answer = await _call_llm_backend(
+            _mask_discord_markup_for_llm(body),
+            discord_user_id=message.author.id,
+        )
+        try:
+            await reply_notice.delete()
+        except discord.HTTPException:
+            pass
+        await _reply_in_chunks(message.channel, answer, reference=message)
 
     client.run(token)
 

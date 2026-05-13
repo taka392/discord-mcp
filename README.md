@@ -46,28 +46,26 @@ DISCORD_BOT_TOKEN='…' discord-reply-bot
 
 Behavior:
 
-- 環境変数 **`DISCORD_LLM_BACKEND`**（省略時は `auto`）でルーティングを固定できます。
-  - **`openclaw`**: **OpenClaw だけ**使う。`OPENCLAW_GATEWAY_URL` + 認証が無いと Discord に設定不足メッセージ。**Cursor には送りません**（`.env` に `CURSOR_AGENT_GATEWAY_URL` が残っていても無視）。
-  - **`cursor`**: Cursor ゲートウェイだけ（OpenClaw があっても無視）。
-  - **`auto`（既定）**: OpenClaw が URL+認証で揃っていれば OpenClaw、さもなければ Cursor、どちらもなければエコー。
-
-- **どちらのバックエンドも未設定**（かつ `auto`）: **DM** → 短文の確認エコー。**サーバー** → @メンション／ボットへの返信で「返信テスト」エコーのみ。
-- **`OPENCLAW_GATEWAY_URL` と `OPENCLAW_GATEWAY_TOKEN`（または `OPENCLAW_GATEWAY_PASSWORD`）を設定**（`auto` または `openclaw`）: [OpenClaw Gateway](https://docs.openclaw.ai/gateway/openai-http-api) の **`POST /v1/chat/completions`** にユーザ文を送り、**アシスタント本文を Discord に返信**します（長文は自動で分割）。`auto` のときは **Cursor の URL があっても OpenClaw が優先**されます。
+- **既定は OpenClaw のみ**です。`OPENCLAW_GATEWAY_URL` と `OPENCLAW_GATEWAY_TOKEN`（または `OPENCLAW_GATEWAY_PASSWORD`）を `discord-reply-bot` に渡すと、[OpenClaw Gateway](https://docs.openclaw.ai/gateway/openai-http-api) の **`POST /v1/chat/completions`** にユーザ文を送り、**アシスタント本文を Discord に返信**します。**Cursor ゲートウェイには送りません**（`.env` に `CURSOR_AGENT_GATEWAY_URL` が残っていても無視されます）。
   - Gateway で **`gateway.http.endpoints.chatCompletions.enabled`** を有効にしてください（無効だと HTTP 404 などになります）。
-  - 主な環境変数: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, 任意で `OPENCLAW_CHAT_MODEL`（既定 `openclaw/default`）、`OPENCLAW_SESSION_USER`（未設定時は `discord:<Discord ユーザー ID>` でセッション振り分け）、`OPENCLAW_MESSAGE_CHANNEL`（既定 `discord`、`x-openclaw-message-channel`）、`OPENCLAW_SESSION_KEY`, `OPENCLAW_MODEL_HEADER`, `OPENCLAW_PROMPT_PREFIX`, `OPENCLAW_GATEWAY_TIMEOUT_SEC`。
-  - Cursor の `mcp.json` にある OpenClaw 用 URL／トークンと**同じ値**を `discord-reply-bot` の環境に渡せばよいです（MCP と reply-bot は別プロセスのため、自動同期はしません）。
-- **`CURSOR_AGENT_GATEWAY_URL` のみ設定**（[`cursor-cli-homelab`](../cursor-cli-homelab) の `agent-gateway`、`POST /v1/prompt` と同じ）: 上記と同じトリガで、プロンプトをゲートウェイ経由で **`agent -p`** に渡し、**標準出力を Discord に返信**します。
-  - `.env`: `CURSOR_AGENT_GATEWAY_URL`, `GATEWAY_TOKEN`（ゲートウェイでトークン必須のとき）、`CURSOR_GATEWAY_TRUST_WORKSPACE`, `CURSOR_GATEWAY_TIMEOUT_SEC`, 任意で `CURSOR_GATEWAY_PROMPT_PREFIX`。
-  - ゲートウェイ側に **`CURSOR_API_KEY`** が必要です。CLI の MCP を確認なしで通したいときはゲートウェイの環境に **`AGENT_APPROVE_MCPS=true`**（[`--approve-mcps`](https://cursor.com/docs/cli/reference/parameters)）を設定。**Agent 既定**（`-p`、IDE の Ask モードではない）で動きますが、「Auto」と完全同一ではなくツール許可／サンドボックス次第です。
-- **DM** と **サーバー（@またはボットへの返信）** の両方で上記バックエンドが使われます。
+  - 主な環境変数: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, 任意で `OPENCLAW_CHAT_MODEL`（既定 `openclaw/default`）、`OPENCLAW_SESSION_USER`（未設定時は `discord:<Discord ユーザー ID>`）、`OPENCLAW_MESSAGE_CHANNEL`（既定 `discord`）、`OPENCLAW_SESSION_KEY`, `OPENCLAW_MODEL_HEADER`, `OPENCLAW_PROMPT_PREFIX`, `OPENCLAW_GATEWAY_TIMEOUT_SEC`。
+  - Cursor の `mcp.json` の `openclaw` と**同じ URL／トークン**を reply-bot の環境に渡せばよいです（別プロセスのため自動同期はしません）。
+  - OpenClaw が未設定のときは、DM／メンションでも **設定不足の説明**が返ります（旧来の短文エコーはしません）。
 
-Discord の本文に含まれる **`<@…>` 形式のメンション**は、OpenClaw／Cursor へ渡す前にプレースホルダへ置き換えます（モデルが「ユーザーIDは解決できない」と返すのを防ぐため）。
+- **旧来の Cursor `agent-gateway` だけ使う**場合（このリポジトリ付属の Docker Compose など）: `.env` に **`DISCORD_LLM_BACKEND=cursor`** を追加してください。[`cursor-cli-homelab`](../cursor-cli-homelab) と同じ **`POST /v1/prompt`** で `agent -p` の標準出力を返します。
+  - `.env`: `CURSOR_AGENT_GATEWAY_URL`, `GATEWAY_TOKEN`, `CURSOR_GATEWAY_TRUST_WORKSPACE`, `CURSOR_GATEWAY_TIMEOUT_SEC`, 任意で `CURSOR_GATEWAY_PROMPT_PREFIX`。ゲートウェイ側に **`CURSOR_API_KEY`**。任意で **`AGENT_APPROVE_MCPS=true`**（[`--approve-mcps`](https://cursor.com/docs/cli/reference/parameters)）。
+
+- **DM** と **サーバー（@またはボットへの返信）** の両方で上記のいずれかが使われます。
+
+Discord の本文に含まれる **`<@…>` 形式のメンション**は、LLM に渡す前にプレースホルダへ置き換えます（モデルが「ユーザーIDは解決できない」と返すのを防ぐため）。
 
 ### Docker（Proxmox 上の VM / LXC など）
 
 `docker compose` は **`discord-reply-bot`** と **`agent-gateway`** の 2 サービスです（`agent_gateway/` は [cursor-cli-homelab のゲートウェイ](https://github.com/taka392/cursor-cli-homelab)と手動で同期）。
 
-- **`CURSOR_AGENT_GATEWAY_URL` は既定サンプルのとおり `http://agent-gateway:9888`**。同一 Compose のブリッジ内で名前解決するため、`192.168.11.xx` の **別ホストに向ける必要はありません**（向けていてそこでゲートウェイが止まっていると「接続できません」になります）。
+- **reply-bot の既定は OpenClaw 専用**です。Compose サンプルのまま **Cursor ゲートウェイだけ**使う場合は、`.env` に **`DISCORD_LLM_BACKEND=cursor`** を必ず書いてください（書かないと `CURSOR_AGENT_GATEWAY_URL` があっても OpenClaw 未設定エラーになります）。
+- OpenClaw を使う場合は、同じ `.env` に **`OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`** を足してください（`DISCORD_LLM_BACKEND` は省略で可）。
+- **`DISCORD_LLM_BACKEND=cursor`** のとき、`CURSOR_AGENT_GATEWAY_URL` は既定サンプルのとおり **`http://agent-gateway:9888`** でよいです（同一 Compose のブリッジ内で名前解決）。別ホストの LAN IP を向ける必要は通常ありません。
 - ホストに **`9888` を公開**するので、Mac の MCP で `CURSOR_HOMELAB_URL=http://<この VM の LAN IP>:9888` とすれば、`cursor-homelab-mcp` もこのゲートウェイを共有可能です。
 - `.env` は両コンテナに読み込まれるので、**`DISCORD_BOT_TOKEN`・`CURSOR_API_KEY`・`GATEWAY_TOKEN` は Git に載せない**こと。
 
