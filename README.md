@@ -137,7 +137,12 @@ Discord から **「ゲートウェイが利用できません (503)」** は **
 
 **OpenClaw 既定**では、同一 VM 上で Gateway が待ち受けているか（`ss -tlnp` 等）、`OPENCLAW_GATEWAY_URL` / トークン、Gateway の **chat completions** 有効化を確認してください。
 
-**`127.0.0.1:18789` に接続できない** と出るのは、その VM で **そのポートに Gateway が居ない**ときです。OpenClaw が別サーバなら `.env` をループバックにしてはいけません。`push_gateway_env_guest_exec.py --use-mcp-gateway-url` または `DISCORD_USE_MCP_GATEWAY_URL=1 ./scripts/deploy_remote.sh` で **MCP に書いてある Gateway URL** に戻せます。本当に同居させるなら、その VM で OpenClaw を起動し、`.env` のポートを **`ss`** で合わせてください。
+**`127.0.0.1:18789` に接続できない** と出るときの整理:
+
+1. **`127.0.0.1` は「そのプロセスが動いているマシン自身」**です。Discord ボットが **VM100** など別ホストで動いていて、OpenClaw が **VM105** だけなら、`.env` の `http://127.0.0.1:18789` は **VM100 の自分自身** を指し、OpenClaw には届きません。
+2. **ボットも OpenClaw も VM105 に置く**なら、同じゲストで `OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789` が正しく、VM105 上で **`ss -tlnp | grep 18789`** に Gateway が見える必要があります。
+3. **ボットだけ別 VM** のままにするなら、`.env` は **`http://<VM105 の tailscale IPv4>:18789`**（105 上で `tailscale ip -4`）か、mcp.json の **HTTPS の Gateway URL**（`push_gateway_env_guest_exec.py --use-mcp-gateway-url`）にしてください。
+4. VM105 に **`discord-mcp` を clone して compose する**場合、ゲストに **Docker（と compose プラグイン）** が必要です。無いと `docker: command not found` で失敗します。
 
 ## Local check
 

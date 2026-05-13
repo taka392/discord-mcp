@@ -70,6 +70,11 @@ def main() -> int:
         help="Guest absolute path (default: /root/discord-mcp)",
     )
     ap.add_argument(
+        "--git-url",
+        default=os.getenv("DISCORD_MCP_GIT_URL", "https://github.com/taka392/discord-mcp.git"),
+        help="Clone URL if repo-dir does not exist yet",
+    )
+    ap.add_argument(
         "--local-gateway-url",
         default=os.getenv("OPENCLAW_GATEWAY_LOCAL_URL", "http://127.0.0.1:18789"),
         help="Bot -> OpenClaw on same host (default: env OPENCLAW_GATEWAY_LOCAL_URL or :18789)",
@@ -134,12 +139,25 @@ OPENCLAW_CHAT_MODEL={oc_model}
 """
     b64 = base64.b64encode(lines.encode("utf-8")).decode("ascii")
     repo_sq = _shell_sq(args.repo_dir)
+    git_sq = _shell_sq(args.git_url)
     bash = f"""set -euo pipefail
-cd {repo_sq}
+REPO={repo_sq}
+GIT_URL={git_sq}
+if [[ ! -d "$REPO/.git" ]]; then
+  parent="$(dirname "$REPO")"
+  mkdir -p "$parent"
+  git clone "$GIT_URL" "$REPO"
+fi
+cd "$REPO"
 git pull --ff-only
 mkdir -p workspace
 printf '%s' {_shell_sq(b64)} | base64 -d > .env
 chmod 600 .env
+if ! command -v docker >/dev/null 2>&1; then
+  echo "error: このゲストに docker がありません。OpenClaw と同じ VM で compose するなら Docker をインストールするか、" >&2
+  echo "error: 別 VM でボットだけ動かすなら、その VM の .env で OPENCLAW_GATEWAY_URL をこのホストへ届く URL（例: http://$(tailscale ip -4 2>/dev/null || true):18789 ）に設定してください。" >&2
+  exit 127
+fi
 docker compose up -d --build --force-recreate
 docker compose ps
 """
